@@ -8,7 +8,9 @@
         android:minSdkVersion="24"
         android:targetSdkVersion="34" />
 
-    <!-- Package visibility: let the app discover Garmin Connect if needed -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <queries>
         <package android:name="com.garmin.android.apps.connectmobile" />
         <package android:name="com.garmin.connectiq" />

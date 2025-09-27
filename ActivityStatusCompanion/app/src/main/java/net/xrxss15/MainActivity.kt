@@ -34,12 +34,25 @@ class MainActivity : Activity() {
     private var ciq: ConnectIQ? = null
     private var app: IQApp? = null
 
-    // Default CIQ App UUID (user can change in GUI)
     private var appId: String = "5cd85684-4b48-419b-b63a-a2065368ae1e"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.d(TAG, "onCreate")
+
+        // Safety guard: prevent process termination from ADB thread crashes in older SDKs
+        Thread.setDefaultUncaughtExceptionHandler { t, e ->
+            val st = e.stackTraceToString()
+            if (st.contains("com.garmin.android.connectiq.adb.AdbConnection")) {
+                Log.e(TAG, "Suppressed ADB thread crash: ${e.message}")
+                appendUi("Suppressed ADB thread crash: ${e.javaClass.simpleName}")
+                // swallow to keep app alive
+            } else {
+                Log.e(TAG, "Uncaught exception in ${t.name}: ${e.message}", e)
+                // rethrow to default to avoid hiding real problems
+                Thread.getDefaultUncaughtExceptionHandler()?.uncaughtException(t, e)
+            }
+        }
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -68,18 +81,6 @@ class MainActivity : Activity() {
             text = "Dump connected devices"
             setOnClickListener { dumpConnected() }
         }
-        val btnRegisterStatus = Button(this).apply {
-            text = "Register device status"
-            setOnClickListener { registerDeviceStatus() }
-        }
-        val btnRegisterAppEvents = Button(this).apply {
-            text = "Register app events"
-            setOnClickListener { registerAppEvents() }
-        }
-        val btnSendFromActivity = Button(this).apply {
-            text = "Send status? (Activity)"
-            setOnClickListener { sendFromActivity() }
-        }
         val btnTriggerReceiver = Button(this).apply {
             text = "Trigger Receiver"
             setOnClickListener {
@@ -92,15 +93,6 @@ class MainActivity : Activity() {
         val btnOpenGC = Button(this).apply {
             text = "Open Garmin Connect"
             setOnClickListener { openGarminConnect() }
-        }
-        val btnApplyAppId = Button(this).apply {
-            text = "Apply App UUID"
-            setOnClickListener {
-                appId = appIdField.text?.toString()?.trim().orEmpty()
-                app = if (appId.isNotEmpty()) IQApp(appId) else null
-                appendUi("App UUID set: $appId")
-                Log.d(TAG, "App UUID updated: $appId")
-            }
         }
         val btnClear = Button(this).apply {
             text = "Clear logs"
@@ -116,21 +108,8 @@ class MainActivity : Activity() {
         }
 
         fun add(vararg v: android.view.View) { v.forEach { root.addView(it) } }
-        add(
-            appIdField,
-            btnApplyAppId,
-            btnInitNoUi,
-            btnInitUi,
-            btnDumpKnown,
-            btnDumpConnected,
-            btnRegisterStatus,
-            btnRegisterAppEvents,
-            btnSendFromActivity,
-            btnTriggerReceiver,
-            btnOpenGC,
-            btnClear,
-            scroll
-        )
+        add(appIdField, btnInitNoUi, btnInitUi, btnDumpKnown, btnDumpConnected,
+            btnTriggerReceiver, btnOpenGC, btnClear, scroll)
 
         setContentView(root)
     }
@@ -147,10 +126,9 @@ class MainActivity : Activity() {
             return
         }
         try {
-            Log.d(TAG, "Initializing SDK TETHERED with Activity context, showUi=$showUi")
-            // IMPORTANT: use Activity context here to prevent crashes on newer Android versions
-            ciq = ConnectIQ.getInstance(this, IQConnectType.TETHERED)
-            ciq!!.initialize(this, showUi, object : ConnectIQListener {
+            Log.d(TAG, "Initializing SDK TETHERED, showUi=$showUi")
+            ciq = ConnectIQ.getInstance(applicationContext, IQConnectType.TETHERED)
+            ciq!!.initialize(applicationContext, showUi, object : ConnectIQListener {
                 override fun onSdkReady() {
                     app = IQApp(appId)
                     Log.d(TAG, "SDK ready (Activity)")
@@ -202,70 +180,6 @@ class MainActivity : Activity() {
         } catch (t: Throwable) {
             Log.e(TAG, "getConnectedDevices failed: ${t.message}", t)
             appendUi("getConnectedDevices failed: ${t.message}")
-        }
-    }
-
-    private fun registerDeviceStatus() {
-        val c = ciq ?: return toastUi("Init SDK first")
-        val list = try { c.knownDevices ?: emptyList() } catch (_: Throwable) { emptyList() }
-        if (list.isEmpty()) { appendUi("No known devices"); return }
-        list.forEach { d ->
-            try {
-                c.registerForDeviceEvents(d) { dev, status ->
-                    Log.d(TAG, "Device ${dev.friendlyName} status=${status.name}")
-                    appendUi("Status ${dev.friendlyName}: ${status.name}")
-                }
-                appendUi("Status listener registered: ${d.friendlyName}")
-            } catch (t: Throwable) {
-                Log.e(TAG, "registerForDeviceEvents failed for ${d.friendlyName}: ${t.message}", t)
-                appendUi("registerForDeviceEvents failed: ${t.message}")
-            }
-        }
-    }
-
-    private fun registerAppEvents() {
-        val c = ciq ?: return toastUi("Init SDK first")
-        val a = app ?: return toastUi("Set App UUID first")
-        val list = try { c.getConnectedDevices()?.filter { it.deviceIdentifier != SIMULATOR_ID } ?: emptyList() } catch (_: Throwable) { emptyList() }
-        if (list.isEmpty()) { appendUi("No connected devices"); return }
-        list.forEach { d ->
-            try {
-                c.registerForAppEvents(d, a, object : IQApplicationEventListener {
-                    override fun onMessageReceived(iqDevice: IQDevice, iqApp: IQApp, messageData: List<Any>, status: IQMessageStatus) {
-                        Log.d(TAG, "AppEvent ${iqDevice.friendlyName} status=$status data=$messageData")
-                        appendUi("RX ${iqDevice.friendlyName}: status=$status data=$messageData")
-                    }
-                })
-                appendUi("App events registered: ${d.friendlyName}")
-            } catch (t: Throwable) {
-                Log.e(TAG, "registerForAppEvents failed for ${d.friendlyName}: ${t.message}", t)
-                appendUi("registerForAppEvents failed: ${t.message}")
-            }
-        }
-    }
-
-    private fun sendFromActivity() {
-        val c = ciq ?: return toastUi("Init SDK first")
-        val a = app ?: return toastUi("Set App UUID first")
-        val list = try { c.getConnectedDevices()?.filter { it.deviceIdentifier != SIMULATOR_ID } ?: emptyList() } catch (_: Throwable) { emptyList() }
-        if (list.isEmpty()) { appendUi("No connected devices"); return }
-        list.forEach { d ->
-            try {
-                c.registerForAppEvents(d, a, object : IQApplicationEventListener {
-                    override fun onMessageReceived(iqDevice: IQDevice, iqApp: IQApp, messageData: List<Any>, status: IQMessageStatus) {
-                        Log.d(TAG, "onMessageReceived (Activity) from ${iqDevice.friendlyName} status=$status data=$messageData")
-                        appendUi("RX (Activity) ${iqDevice.friendlyName}: status=$status data=$messageData")
-                    }
-                })
-                c.sendMessage(d, a, listOf("status?")) { _, _, status ->
-                    Log.d(TAG, "sendMessage (Activity) ${d.friendlyName} status=$status")
-                    appendUi("TX (Activity) ${d.friendlyName}: status=$status")
-                }
-                appendUi("Sent status? to ${d.friendlyName}")
-            } catch (t: Throwable) {
-                Log.e(TAG, "sendFromActivity failed for ${d.friendlyName}: ${t.message}", t)
-                appendUi("sendFromActivity failed: ${t.message}")
-            }
         }
     }
 

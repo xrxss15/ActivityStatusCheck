@@ -1,14 +1,14 @@
 plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
 }
 
 android {
-    namespace "net.xrxss15"
+    namespace 'net.xrxss15'
     compileSdk 34
 
     defaultConfig {
-        applicationId "net.xrxss15"
+        applicationId 'net.xrxss15'
         minSdk 24
         targetSdk 34
         versionCode 1
@@ -17,10 +17,7 @@ android {
     buildTypes {
         release {
             minifyEnabled false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {
             minifyEnabled false
@@ -31,13 +28,12 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
     kotlinOptions {
-        jvmTarget = "17"
+        jvmTarget = '17'
     }
 }
 
 dependencies {
-    implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.24")
-    implementation("androidx.core:core-ktx:1.13.1")
-    # Connect IQ Mobile SDK from Maven Central (AAR)
-    implementation("com.garmin.connectiq:ciq-companion-app-sdk:2.3.0@aar")
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.24"
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'com.garmin.connectiq:ciq-companion-app-sdk:2.3.0@aar'
 }

@@ -1,18 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="net.xrxss15"
-    xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application
-        android:label="ActivityStatusCompanion"
-        android:icon="@mipmap/ic_launcher"
-        android:allowBackup="true"
-        android:supportsRtl="true">
+        android:label="Activity Status Companion">
 
         <receiver
             android:name=".ActivityStatusCheckReceiver"
             android:exported="true">
             <intent-filter>
-                <action android:name="net.xrxss15.ACTIVITY_STATUS_CHECK"/>
+                <action android:name="net.xrxss15.ACTIVITY_STATUS_CHECK" />
             </intent-filter>
         </receiver>
 

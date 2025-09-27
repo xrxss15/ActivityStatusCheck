@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Package visibility: let the app discover Garmin Connect if needed -->
+    <queries>
+        <package android:name="com.garmin.android.apps.connectmobile" />
+        <package android:name="com.garmin.connectiq" />
+    </queries>
+
     <application
         android:label="Activity Status Companion">
 

@@ -33,7 +33,9 @@ class MainActivity : Activity() {
 
     private var ciq: ConnectIQ? = null
     private var app: IQApp? = null
-    private var appId: String = "REPLACE_WITH_WATCH_APP_UUID"
+
+    // Default CIQ App UUID (user can change in GUI)
+    private var appId: String = "5cd85684-4b48-419b-b63a-a2065368ae1e"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -114,8 +116,21 @@ class MainActivity : Activity() {
         }
 
         fun add(vararg v: android.view.View) { v.forEach { root.addView(it) } }
-        add(appIdField, btnApplyAppId, btnInitNoUi, btnInitUi, btnDumpKnown, btnDumpConnected,
-            btnRegisterStatus, btnRegisterAppEvents, btnSendFromActivity, btnTriggerReceiver, btnOpenGC, btnClear, scroll)
+        add(
+            appIdField,
+            btnApplyAppId,
+            btnInitNoUi,
+            btnInitUi,
+            btnDumpKnown,
+            btnDumpConnected,
+            btnRegisterStatus,
+            btnRegisterAppEvents,
+            btnSendFromActivity,
+            btnTriggerReceiver,
+            btnOpenGC,
+            btnClear,
+            scroll
+        )
 
         setContentView(root)
     }
@@ -132,9 +147,10 @@ class MainActivity : Activity() {
             return
         }
         try {
-            Log.d(TAG, "Initializing SDK TETHERED, showUi=$showUi")
-            ciq = ConnectIQ.getInstance(applicationContext, IQConnectType.TETHERED)
-            ciq!!.initialize(applicationContext, showUi, object : ConnectIQListener {
+            Log.d(TAG, "Initializing SDK TETHERED with Activity context, showUi=$showUi")
+            // IMPORTANT: use Activity context here to prevent crashes on newer Android versions
+            ciq = ConnectIQ.getInstance(this, IQConnectType.TETHERED)
+            ciq!!.initialize(this, showUi, object : ConnectIQListener {
                 override fun onSdkReady() {
                     app = IQApp(appId)
                     Log.d(TAG, "SDK ready (Activity)")

@@ -14,6 +14,7 @@ android {
         versionCode 1
         versionName "1.0"
     }
+
     buildTypes {
         release {
             minifyEnabled false
@@ -23,6 +24,7 @@ android {
             minifyEnabled false
         }
     }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
@@ -34,8 +36,8 @@ android {
 
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.24"
-    implementation 'androidx.core:core-ktx:1.13.1'
-    implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'com.google.android.material:material:1.12.0'
-    implementation 'com.garmin.connectiq:ciq-companion-app-sdk:2.3.0@aar'
+    implementation "androidx.core:core-ktx:1.13.1"
+
+
+    implementation "com.garmin.connectiq:ciq-companion-app-sdk:2.3.0@aar"
 }

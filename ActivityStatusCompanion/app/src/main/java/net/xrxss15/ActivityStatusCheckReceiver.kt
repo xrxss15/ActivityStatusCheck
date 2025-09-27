@@ -29,7 +29,7 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
         const val EXTRA_DEVICE_NAME = "deviceName"
         const val EXTRA_STATUS  = "status"
 
-        private const val CIQ_APP_ID = "REPLACE_WITH_WATCH_APP_UUID"
+        private const val CIQ_APP_ID = "5cd85684-4b48-419b-b63a-a2065368ae1e"
         private const val TIMEOUT_MS = 10000L
         private const val SIMULATOR_ID: Long = 12345L
     }

@@ -6,7 +6,6 @@ import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import android.widget.Toast
 import com.garmin.android.connectiq.ConnectIQ
 import com.garmin.android.connectiq.ConnectIQ.ConnectIQListener
 import com.garmin.android.connectiq.ConnectIQ.IQApplicationEventListener
@@ -19,15 +18,29 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
 
     companion object {
         private const val TAG = "ActStatusCheck"
-        private const val ACTION_OUT = "net.xrxss15.ACTIVITY_STATUS_CHECK"
-        private const val EXTRA_PAYLOAD = "payload"
-        private const val EXTRA_DEBUG = "debug"
+
+        // Tasker triggers this
+        const val ACTION_TRIGGER = "net.xrxss15.ACTIVITY_STATUS_CHECK"
+
+        // Tasker listens for this (per-device and also for no-device/error cases)
+        const val ACTION_RESULT = "net.xrxss15.ACTIVITY_STATUS_RESULT"
+
+        // Result extras
+        const val EXTRA_PAYLOAD = "payload"          // e.g., "running:true", "TIMEOUT", or "ERROR"
+        const val EXTRA_DEBUG = "debug"              // free-form debug text
+        const val EXTRA_DEVICE_ID = "deviceId"       // empty if no device
+        const val EXTRA_DEVICE_NAME = "deviceName"   // empty if no device
+        const val EXTRA_STATUS = "status"            // "SUCCESS", "TIMEOUT", "ERROR", "NO_DEVICES"
+
+        // Set exact UUID of the watch app
         private const val CIQ_APP_ID = "REPLACE_WITH_WATCH_APP_UUID"
+
         private const val TIMEOUT_MS = 10000L
+        private const val SIMULATOR_ID: Long = 12345L // compare as Long
     }
 
     override fun onReceive(ctx: Context, intent: Intent) {
-        Log.d(TAG, "Received: $intent")
+        if (intent.action != ACTION_TRIGGER) return
         val pending = goAsync()
         val main = Handler(Looper.getMainLooper())
 
@@ -35,12 +48,11 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
             val ciq = ConnectIQ.getInstance(ctx, IQConnectType.TETHERED)
             ciq.initialize(ctx, true, object : ConnectIQListener {
                 override fun onSdkReady() {
-                    Log.d(TAG, "SDK ready")
                     runFlow(ctx, ciq, pending)
                 }
                 override fun onInitializeError(status: ConnectIQ.IQSdkErrorStatus?) {
-                    Log.e(TAG, "SDK init error: $status")
-                    emit(ctx, "TIMEOUT", "initError=$status"); pending.finish()
+                    emitResult(ctx, null, "ERROR", "initError=$status", "ERROR")
+                    pending.finish()
                 }
                 override fun onSdkShutDown() = Unit
             })
@@ -49,75 +61,93 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
 
     private fun runFlow(ctx: Context, ciq: ConnectIQ, pending: PendingResult) {
         val app = IQApp(CIQ_APP_ID)
-        val devices = try { ciq.knownDevices ?: emptyList() } catch (t: Throwable) { Log.e(TAG, "knownDevices failed", t); emptyList() }
-        if (devices.isEmpty()) { emit(ctx, "TIMEOUT", "noDevices"); pending.finish(); return }
 
-        val device = devices.first()
-        Log.d(TAG, "Using device: ${device.friendlyName} id=${device.deviceIdentifier}")
+        // Connected, non-simulator devices only (deviceIdentifier is non-nullable Long)
+        val connected = try {
+            ciq.getConnectedDevices() ?: emptyList()
+        } catch (_: Throwable) {
+            emptyList()
+        }.filter { it.deviceIdentifier != SIMULATOR_ID }
 
-        // Log device status changes
-        try {
-            ciq.registerForDeviceEvents(device) { dev, status ->
-                Log.d(TAG, "Device ${dev.friendlyName} status=${status.name}")
-            }
-        } catch (t: Throwable) { Log.e(TAG, "registerForDeviceEvents failed", t) }
-
-        var finished = false
-        val timeout = Handler(Looper.getMainLooper())
-        timeout.postDelayed({
-            if (!finished) {
-                Log.w(TAG, "Timeout waiting for reply")
-                emit(ctx, "TIMEOUT", "timeoutMs=$TIMEOUT_MS")
-                pending.finish()
-                finished = true
-            }
-        }, TIMEOUT_MS)
-
-        // Listen first, then send
-        try {
-            ciq.registerForAppEvents(device, app, object : IQApplicationEventListener {
-                override fun onMessageReceived(
-                    iqDevice: IQDevice,
-                    iqApp: IQApp,
-                    messageData: List<Any>,
-                    status: IQMessageStatus
-                ) {
-                    Log.d(TAG, "onMessageReceived status=$status data=$messageData")
-                    if (!finished && status == IQMessageStatus.SUCCESS && messageData.isNotEmpty()) {
-                        val txt = messageData.joinToString("")
-                        emit(ctx, txt, "rxStatus=$status")
-                        pending.finish()
-                        finished = true
-                    }
-                }
-            })
-            Log.d(TAG, "Registered app event listener")
-        } catch (t: Throwable) {
-            Log.e(TAG, "registerForAppEvents failed", t)
-            if (!finished) { emit(ctx, "TIMEOUT", "registerForAppEventsError=${t.message}"); pending.finish(); finished = true }
+        if (connected.isEmpty()) {
+            emitResult(ctx, null, "NO_DEVICES", "noConnectedDevices", "NO_DEVICES")
+            pending.finish()
             return
         }
 
-        try {
-            ciq.sendMessage(device, app, listOf("status?")) { _, _, status ->
-                Log.d(TAG, "sendMessage status=$status")
-                if (status != IQMessageStatus.SUCCESS) {
-                    // Do not finish here; wait for possible late app event or timeout
-                    Toast.makeText(ctx, "sendMessage: $status", Toast.LENGTH_SHORT).show()
+        // Track per-device completion
+        var done = 0
+        val responded = connected.associateWith { false }.toMutableMap()
+
+        val finishIfAll = {
+            if (done == connected.size) pending.finish()
+        }
+
+        // Global timeout
+        val timeout = Handler(Looper.getMainLooper())
+        timeout.postDelayed({
+            connected.forEach { dev ->
+                if (responded[dev] == false) {
+                    responded[dev] = true
+                    done += 1
+                    emitResult(ctx, dev, "TIMEOUT", "timeoutMs=$TIMEOUT_MS", "TIMEOUT")
                 }
             }
-            Log.d(TAG, "Sent message: status?")
-        } catch (t: Throwable) {
-            Log.e(TAG, "sendMessage failed", t)
-            if (!finished) { emit(ctx, "TIMEOUT", "sendError=${t.message}"); pending.finish(); finished = true }
+            finishIfAll()
+        }, TIMEOUT_MS)
+
+        // Listen first, then send
+        connected.forEach { dev ->
+            try {
+                ciq.registerForAppEvents(dev, app, object : IQApplicationEventListener {
+                    override fun onMessageReceived(
+                        iqDevice: IQDevice,
+                        iqApp: IQApp,
+                        messageData: List<Any>,
+                        status: IQMessageStatus
+                    ) {
+                        if (responded[iqDevice] == true) return
+                        if (status == IQMessageStatus.SUCCESS && messageData.isNotEmpty()) {
+                            val txt = messageData.joinToString("")
+                            responded[iqDevice] = true
+                            done += 1
+                            emitResult(ctx, iqDevice, txt, "rxStatus=$status", "SUCCESS")
+                            finishIfAll()
+                        }
+                    }
+                })
+            } catch (t: Throwable) {
+                if (responded[dev] == false) {
+                    responded[dev] = true
+                    done += 1
+                    emitResult(ctx, dev, "ERROR", "registerForAppEventsError=${t.message}", "ERROR")
+                    finishIfAll()
+                }
+                return@forEach
+            }
+
+            try {
+                ciq.sendMessage(dev, app, listOf("status?")) { _, _, _ ->
+                    // Keep waiting for app event or timeout
+                }
+            } catch (t: Throwable) {
+                if (responded[dev] == false) {
+                    responded[dev] = true
+                    done += 1
+                    emitResult(ctx, dev, "ERROR", "sendError=${t.message}", "ERROR")
+                    finishIfAll()
+                }
+            }
         }
     }
 
-    private fun emit(ctx: Context, payload: String, dbg: String) {
-        Log.d(TAG, "Emit payload=$payload debug=$dbg")
-        val out = Intent(ACTION_OUT).apply {
+    private fun emitResult(ctx: Context, dev: IQDevice?, payload: String, dbg: String, status: String) {
+        val out = Intent(ACTION_RESULT).apply {
             putExtra(EXTRA_PAYLOAD, payload)
             putExtra(EXTRA_DEBUG, dbg)
+            putExtra(EXTRA_STATUS, status)
+            putExtra(EXTRA_DEVICE_ID, (dev?.deviceIdentifier ?: 0L).toString())
+            putExtra(EXTRA_DEVICE_NAME, dev?.friendlyName ?: "")
         }
         ctx.sendBroadcast(out)
     }

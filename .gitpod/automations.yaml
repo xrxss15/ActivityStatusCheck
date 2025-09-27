@@ -1,13 +1,19 @@
-image: gitpod/workspace-full:latest
-
+# .gitpod/automation.yaml
 tasks:
-  - name: Android SDK + Java 17 + Gradle Wrapper + Build
-    init: |
+  android_setup_and_build:
+    name: Android SDK + Java 17 + Gradle Wrapper + Build
+    description: Installs OpenJDK 17 and Android CLI tools, accepts licenses, installs API 34 + Build Tools 34.0.0, generates Gradle Wrapper if missing, then builds the APK
+    triggeredBy:
+      - postEnvironmentStart
+    command: |
+      set -euxo pipefail
+
       # 1) Java 17
-      sudo apt-get update && sudo apt-get install -y openjdk-17-jdk
+      sudo apt-get update
+      sudo apt-get install -y openjdk-17-jdk
       java -version
 
-      # 2) Android SDK command-line tools in $ANDROID_SDK_ROOT
+      # 2) Android SDK command-line tools
       export ANDROID_SDK_ROOT="$HOME/android-sdk"
       mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
       cd "$ANDROID_SDK_ROOT"
@@ -17,15 +23,15 @@ tasks:
       mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools/"* "$ANDROID_SDK_ROOT/cmdline-tools/latest/" || true
       rm -f cmdline-tools.zip
 
-      # 3) PATH for sdkmanager, platform-tools
+      # PATH for sdkmanager and platform-tools
       export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$PATH"
 
-      # 4) Accept licenses and install required packages (API 34)
+      # 3) Accept licenses and install required packages (API 34)
       yes | sdkmanager --licenses
       yes | sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
-      # 5) Build with Gradle Wrapper (generate if missing, then use ./gradlew)
-      cd "$GITPOD_REPO_ROOT/ActivityStatusCompanion"
+      # 4) Build with Gradle Wrapper (generate if missing)
+      cd "$GITPOD_REPO_ROOT"/ActivityStatusCompanion || cd ActivityStatusCompanion
       if [ ! -f gradlew ]; then
         curl -s https://get.sdkman.io | bash
         source "$HOME/.sdkman/bin/sdkman-init.sh"
@@ -33,8 +39,4 @@ tasks:
         gradle wrapper --gradle-version 8.10.2
       fi
       chmod +x ./gradlew
-      ./gradlew assembleDebug
-
-    command: |
-      cd "$GITPOD_REPO_ROOT/ActivityStatusCompanion"
       ./gradlew assembleDebug

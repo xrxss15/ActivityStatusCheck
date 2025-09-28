@@ -29,7 +29,7 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
         const val EXTRA_DEVICE_COUNT = "deviceCount"
         const val EXTRA_SUCCESS = "success"
         private const val SIMULATOR_ID: Long = 12345L
-        private const val APP_UUID = "5cd85684-4b48-419b-b63a-a2065368ae1e"
+        private const val APP_UUID = "7b408c6e-fc9c-4080-bad4-97a3557fc995"
         private const val QUERY_TIMEOUT_MS = 15000L
         private const val BRIDGE_SETUP_DELAY_MS = 3000L // Increased for better reliability
         private const val DEVICE_RETRY_DELAY_MS = 2000L

@@ -31,7 +31,9 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
         private const val SIMULATOR_ID: Long = 12345L
         private const val APP_UUID = "5cd85684-4b48-419b-b63a-a2065368ae1e"
         private const val QUERY_TIMEOUT_MS = 15000L
-        private const val BRIDGE_SETUP_DELAY_MS = 2000L
+        private const val BRIDGE_SETUP_DELAY_MS = 3000L // Increased for better reliability
+        private const val DEVICE_RETRY_DELAY_MS = 2000L
+        private const val MAX_RETRY_ATTEMPTS = 2
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -51,7 +53,7 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
         Log.d(TAG, "All required permissions verified")
         val pendingResult = goAsync()
         
-        initializeConnectIQWithProperSequence(context, pendingResult)
+        initializeConnectIQWithProperSequence(context, pendingResult, 0)
     }
 
     private fun hasRequiredPermissions(context: Context): Boolean {
@@ -77,8 +79,12 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
         return true
     }
 
-    private fun initializeConnectIQWithProperSequence(context: Context, pendingResult: PendingResult) {
-        Log.d(TAG, "Starting ConnectIQ initialization sequence")
+    private fun initializeConnectIQWithProperSequence(
+        context: Context, 
+        pendingResult: PendingResult,
+        retryCount: Int
+    ) {
+        Log.d(TAG, "Starting ConnectIQ initialization sequence (attempt ${retryCount + 1})")
         
         try {
             val ciq = ConnectIQ.getInstance(context, IQConnectType.TETHERED)
@@ -92,7 +98,7 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
                     
                     Handler(Looper.getMainLooper()).postDelayed({
                         Log.d(TAG, "Phase 2: Starting device discovery after bridge setup")
-                        performDeviceQuerySequence(context, ciq, myApp, pendingResult)
+                        performDeviceQuerySequence(context, ciq, myApp, pendingResult, retryCount)
                     }, BRIDGE_SETUP_DELAY_MS)
                 }
 
@@ -132,11 +138,35 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
         context: Context,
         ciq: ConnectIQ,
         myApp: IQApp,
-        pendingResult: PendingResult
+        pendingResult: PendingResult,
+        retryCount: Int
     ) {
-        Log.d(TAG, "Starting device query sequence")
+        Log.d(TAG, "Starting device query sequence (attempt ${retryCount + 1})")
         
         try {
+            // STEP 1: Force app registration with devices first
+            Log.d(TAG, "Pre-registering app with all potential devices")
+            try {
+                // Get preliminary device list
+                val preliminaryDevices = ciq.knownDevices
+                Log.d(TAG, "Preliminary device scan found ${preliminaryDevices.size} devices")
+                
+                // Pre-register with any found devices
+                preliminaryDevices.forEach { device ->
+                    try {
+                        ciq.registerForAppEvents(device, myApp) { _, _, _, _ ->
+                            Log.d(TAG, "Pre-registration callback received from ${device.friendlyName}")
+                        }
+                        Log.d(TAG, "Pre-registered with ${device.friendlyName}")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Pre-registration failed for ${device.friendlyName}: ${e.message}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Pre-registration phase failed: ${e.message}")
+            }
+
+            // STEP 2: Get final device lists
             val knownDevices = ciq.knownDevices
             val connectedDevices = ciq.connectedDevices
 
@@ -144,11 +174,21 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
 
             if (knownDevices.isEmpty()) {
                 Log.w(TAG, "No known devices found - bridge may not be properly established")
-                sendResult(context, false, "No devices found", buildDebugInfo(0, 0, "No devices discovered"))
-                pendingResult.finish()
-                return
+                
+                if (retryCount < MAX_RETRY_ATTEMPTS) {
+                    Log.d(TAG, "Retrying device discovery after delay")
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        performDeviceQuerySequence(context, ciq, myApp, pendingResult, retryCount + 1)
+                    }, DEVICE_RETRY_DELAY_MS)
+                    return
+                } else {
+                    sendResult(context, false, "No devices found", buildDebugInfo(0, 0, "No devices discovered after retries"))
+                    pendingResult.finish()
+                    return
+                }
             }
 
+            // STEP 3: Select optimal device
             val targetDevice = selectOptimalDevice(ciq, knownDevices)
 
             if (targetDevice == null) {
@@ -163,6 +203,7 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
             
             Log.i(TAG, "Selected device: ${targetDevice.friendlyName}, Type: $deviceType, Status: $deviceStatus")
 
+            // STEP 4: Establish communication
             establishDeviceCommunication(context, ciq, myApp, targetDevice, knownDevices.size, connectedDevices.size, pendingResult)
 
         } catch (e: Exception) {
@@ -175,6 +216,7 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
     private fun selectOptimalDevice(ciq: ConnectIQ, knownDevices: List<IQDevice>): IQDevice? {
         Log.d(TAG, "Selecting optimal device from ${knownDevices.size} known devices")
         
+        // Priority 1: Connected real device
         val connectedRealDevice = knownDevices
             .filter { it.deviceIdentifier != SIMULATOR_ID }
             .find { ciq.getDeviceStatus(it) == IQDeviceStatus.CONNECTED }
@@ -184,12 +226,14 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
             return connectedRealDevice
         }
 
+        // Priority 2: Any real device
         val realDevice = knownDevices.find { it.deviceIdentifier != SIMULATOR_ID }
         if (realDevice != null) {
             Log.d(TAG, "Selected real device: ${realDevice.friendlyName}")
             return realDevice
         }
 
+        // Priority 3: Simulator as fallback
         val simulator = knownDevices.find { it.deviceIdentifier == SIMULATOR_ID }
         if (simulator != null) {
             Log.w(TAG, "Using simulator as fallback device")

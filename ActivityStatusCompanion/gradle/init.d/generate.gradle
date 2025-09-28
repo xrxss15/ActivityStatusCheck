@@ -1,0 +1,20 @@
+// Auto-generate local.properties from android-sdk.path (Git-tracked)
+allprojects {
+    gradle.settingsEvaluated { settings ->
+        def sdkFile   = new File(settings.settingsDir, "android-sdk.path")
+        def localProps = new File(settings.settingsDir, "local.properties")
+
+        if (sdkFile.exists()) {
+            def props = new Properties()
+            props.load(new FileInputStream(sdkFile))
+            def sdkDir = props.getProperty("sdk.dir")?.trim()
+
+            if (sdkDir && (!localProps.exists() || !localProps.text.contains(sdkDir))) {
+                println "[init] Writing local.properties → sdk.dir=${sdkDir}"
+                localProps.text = "sdk.dir=${sdkDir}\n"
+            }
+        } else {
+            println "[init] WARNING: android-sdk.path not found"
+        }
+    }
+}

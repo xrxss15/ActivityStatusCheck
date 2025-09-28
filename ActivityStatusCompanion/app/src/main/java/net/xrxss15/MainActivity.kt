@@ -9,16 +9,13 @@ import android.os.Looper
 import android.util.Log
 import android.view.ViewGroup.LayoutParams
 import android.widget.Button
-import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import com.garmin.android.connectiq.ConnectIQ
 import com.garmin.android.connectiq.ConnectIQ.ConnectIQListener
-import com.garmin.android.connectiq.ConnectIQ.IQApplicationEventListener
 import com.garmin.android.connectiq.ConnectIQ.IQConnectType
-import com.garmin.android.connectiq.ConnectIQ.IQMessageStatus
 import com.garmin.android.connectiq.IQApp
 import com.garmin.android.connectiq.IQDevice
 
@@ -86,19 +83,15 @@ class MainActivity : Activity() {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
         }
 
-        fun add(vararg v: android.view.View) { v.forEach { root.addView(it) } }
-        add(btnInitUi, btnInitNoUi, btnDumpKnown, btnDumpConnected, btnTriggerReceiver, btnOpenGC, btnClear, scroll)
-
+        listOf(btnInitUi, btnInitNoUi, btnDumpKnown, btnDumpConnected, btnTriggerReceiver, btnOpenGC, btnClear, scroll).forEach { root.addView(it) }
         setContentView(root)
     }
 
     override fun onDestroy() {
         Log.d(TAG, "onDestroy - cleaning up ConnectIQ SDK")
         
-        // Clean up Connect IQ SDK to prevent receiver leaks
         try {
             ciq?.let { connectIQ ->
-                // Shutdown the SDK to unregister internal receivers
                 connectIQ.shutdown(this)
                 Log.d(TAG, "ConnectIQ SDK shutdown completed")
             }
@@ -167,7 +160,7 @@ class MainActivity : Activity() {
         if (realKnown.isNotEmpty() || realConnected.isNotEmpty()) {
             appendUi("✅ Bridge established - real devices found!")
         } else {
-            appendUi("❌ Bridge not established - try 'Init SDK (with UI)' again")
+            appendUi("❌ Bridge not established - try 'Init SDK (with UI)' button")
         }
         
         // Log device details

@@ -2,7 +2,7 @@ package net.xrxss15
 
 import android.app.Activity
 import android.content.Intent
-import android.os.Build
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -16,10 +16,11 @@ import android.widget.TextView
 import android.widget.Toast
 import com.garmin.android.connectiq.ConnectIQ
 import com.garmin.android.connectiq.ConnectIQ.ConnectIQListener
+import com.garmin.android.connectiq.ConnectIQ.IQApplicationEventListener
 import com.garmin.android.connectiq.ConnectIQ.IQConnectType
+import com.garmin.android.connectiq.ConnectIQ.IQMessageStatus
 import com.garmin.android.connectiq.IQApp
 import com.garmin.android.connectiq.IQDevice
-import com.garmin.android.connectiq.IQDevice.IQDeviceStatus
 
 class MainActivity : Activity() {
 
@@ -33,181 +34,210 @@ class MainActivity : Activity() {
     private var ciq: ConnectIQ? = null
     private var app: IQApp? = null
     private var appId: String = "5cd85684-4b48-419b-b63a-a2065368ae1e"
-    private var sdkInitialized = false
-    private var bridgeReady = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.d(TAG, "onCreate")
-
-        // Enable ConnectIQ debug logging
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            System.setProperty("connectiq.debug", "true")
-        }
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
         }
 
-        val btnInitFirst = Button(this).apply {
-            text = "FIRST Init (with UI)"
-            setOnClickListener { initSdkFirst() }
+        val btnInitUi = Button(this).apply {
+            text = "Init SDK (with UI)"
+            setOnClickListener { initSdk(true) }
+        }
+        val btnInitNoUi = Button(this).apply {
+            text = "Init SDK (no UI)"
+            setOnClickListener { initSdk(false) }
         }
         val btnDumpKnown = Button(this).apply {
             text = "Dump known devices"
             setOnClickListener { dumpKnown() }
         }
         val btnDumpConnected = Button(this).apply {
-            text = "Dump connected devices" 
+            text = "Dump connected devices"
             setOnClickListener { dumpConnected() }
-        }
-        val btnWaitForBridge = Button(this).apply {
-            text = "Wait for bridge (10s)"
-            setOnClickListener { waitForBridge() }
         }
         val btnTriggerReceiver = Button(this).apply {
             text = "Trigger Receiver"
             setOnClickListener {
-                if (!bridgeReady) {
-                    toast("Bridge not ready - init first")
-                    return@setOnClickListener
-                }
+                Log.d(TAG, "Triggering receiver action")
                 sendBroadcast(Intent(ActivityStatusCheckReceiver.ACTION_TRIGGER))
                 toast("Broadcast sent")
+                appendUi("Broadcast sent: ${ActivityStatusCheckReceiver.ACTION_TRIGGER}")
             }
         }
+        val btnOpenGC = Button(this).apply {
+            text = "Open Garmin Connect"
+            setOnClickListener { openGarminConnect() }
+        }
+        val btnClear = Button(this).apply {
+            text = "Clear logs"
+            setOnClickListener { logView.text = "" }
+        }
 
-        logView = TextView(this)
+        logView = TextView(this).apply {
+            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+        }
         val scroll = ScrollView(this).apply {
             addView(logView)
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
         }
 
-        listOf(btnInitFirst, btnDumpKnown, btnDumpConnected, btnWaitForBridge, btnTriggerReceiver, scroll).forEach { root.addView(it) }
+        fun add(vararg v: android.view.View) { v.forEach { root.addView(it) } }
+        add(btnInitUi, btnInitNoUi, btnDumpKnown, btnDumpConnected, btnTriggerReceiver, btnOpenGC, btnClear, scroll)
+
         setContentView(root)
     }
 
-    private fun initSdkFirst() {
-        if (sdkInitialized) {
+    override fun onDestroy() {
+        Log.d(TAG, "onDestroy - cleaning up ConnectIQ SDK")
+        
+        // Clean up Connect IQ SDK to prevent receiver leaks
+        try {
+            ciq?.let { connectIQ ->
+                // Shutdown the SDK to unregister internal receivers
+                connectIQ.shutdown(this)
+                Log.d(TAG, "ConnectIQ SDK shutdown completed")
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Error during ConnectIQ cleanup: ${t.message}")
+        } finally {
+            ciq = null
+            app = null
+        }
+        
+        super.onDestroy()
+    }
+
+    private fun initSdk(showUi: Boolean) {
+        if (ciq != null) {
             toast("SDK already initialized")
             return
         }
         
         try {
-            log("Creating ConnectIQ instance (TETHERED)")
+            Log.d(TAG, "Initializing SDK TETHERED, showUi=$showUi")
             ciq = ConnectIQ.getInstance(this, IQConnectType.TETHERED)
-            
-            log("Initializing SDK with showUi=true (REQUIRED for first run)")
-            ciq!!.initialize(this, true, object : ConnectIQListener {
+            ciq!!.initialize(this, showUi, object : ConnectIQListener {
                 override fun onSdkReady() {
-                    log("SDK ready - checking devices in 2s")
-                    sdkInitialized = true
                     app = IQApp(appId)
+                    Log.d(TAG, "SDK ready (Activity)")
+                    toast("SDK ready")
+                    appendUi("SDK ready")
                     
-                    // Give bridge time to establish before checking devices
+                    // Wait 3 seconds then check devices
                     Handler(Looper.getMainLooper()).postDelayed({
-                        checkBridgeStatus()
-                    }, 2000)
+                        checkDevicesAfterInit()
+                    }, 3000)
                 }
                 override fun onInitializeError(status: ConnectIQ.IQSdkErrorStatus?) {
-                    log("SDK init error: $status")
-                    toast("Init failed: $status")
+                    Log.e(TAG, "SDK init error (Activity): $status")
+                    toast("SDK init error: $status")
+                    appendUi("SDK init error: $status")
                 }
                 override fun onSdkShutDown() {
-                    log("SDK shutdown")
-                    sdkInitialized = false
-                    bridgeReady = false
+                    Log.d(TAG, "SDK shutdown (Activity)")
+                    appendUi("SDK shutdown")
                 }
             })
+            appendUi("Init called (showUi=$showUi)")
         } catch (t: Throwable) {
-            log("Init exception: ${t.message}")
-            toast("Init failed: ${t.message}")
+            Log.e(TAG, "Init exception: ${t.message}", t)
+            toast("Init exception: ${t.message}")
+            appendUi("Init exception: ${t.message}")
         }
     }
 
-    private fun checkBridgeStatus() {
+    private fun checkDevicesAfterInit() {
         val c = ciq ?: return
-        log("Checking bridge status...")
-        
-        // Check both known and connected devices
         val known = try { c.knownDevices ?: emptyList() } catch (_: Throwable) { emptyList() }
         val connected = try { c.getConnectedDevices() ?: emptyList() } catch (_: Throwable) { emptyList() }
         
-        log("Known devices: ${known.size}")
-        log("Connected devices: ${connected.size}")
+        appendUi("=== AFTER INIT CHECK ===")
+        appendUi("Known: ${known.size}, Connected: ${connected.size}")
         
         val realKnown = known.filter { it.deviceIdentifier != SIMULATOR_ID }
         val realConnected = connected.filter { it.deviceIdentifier != SIMULATOR_ID }
         
-        log("Real known devices: ${realKnown.size}")
-        log("Real connected devices: ${realConnected.size}")
+        appendUi("Real known: ${realKnown.size}, Real connected: ${realConnected.size}")
         
         if (realKnown.isNotEmpty() || realConnected.isNotEmpty()) {
-            bridgeReady = true
-            log("Bridge appears ready - found real devices")
-            toast("Bridge ready!")
+            appendUi("✅ Bridge established - real devices found!")
         } else {
-            log("Bridge not ready - only simulator found")
-            toast("Only simulator found - check Garmin Connect")
-        }
-    }
-
-    private fun waitForBridge() {
-        if (!sdkInitialized) {
-            toast("Init SDK first")
-            return
+            appendUi("❌ Bridge not established - try 'Init SDK (with UI)' again")
         }
         
-        log("Waiting 10s for bridge to establish...")
-        toast("Waiting for bridge...")
-        
-        Handler(Looper.getMainLooper()).postDelayed({
-            checkBridgeStatus()
-        }, 10000)
+        // Log device details
+        realKnown.forEach { device ->
+            appendUi("Known device: ${device.friendlyName} (${device.deviceIdentifier})")
+        }
+        realConnected.forEach { device ->
+            appendUi("Connected device: ${device.friendlyName} (${device.deviceIdentifier})")
+        }
     }
 
     private fun dumpKnown() {
-        val c = ciq ?: return toast("Init SDK first")
+        val c = ciq ?: return toastUi("Init SDK first")
         try {
             val list = c.knownDevices ?: emptyList()
-            log("=== KNOWN DEVICES ===")
+            appendUi("=== KNOWN DEVICES ===")
             if (list.isEmpty()) {
-                log("No known devices")
+                appendUi("No known devices")
                 return
             }
             
             list.forEachIndexed { i, d ->
                 val isSimulator = d.deviceIdentifier == SIMULATOR_ID
-                log("[$i] ${d.friendlyName} id=${d.deviceIdentifier} ${if (isSimulator) "[SIMULATOR]" else "[REAL]"}")
+                appendUi("[$i] ${d.friendlyName} id=${d.deviceIdentifier} ${if (isSimulator) "[SIMULATOR]" else "[REAL]"}")
             }
         } catch (t: Throwable) {
-            log("knownDevices failed: ${t.message}")
+            appendUi("knownDevices failed: ${t.message}")
         }
     }
 
     private fun dumpConnected() {
-        val c = ciq ?: return toast("Init SDK first")
+        val c = ciq ?: return toastUi("Init SDK first")
         try {
             val list = c.getConnectedDevices() ?: emptyList()
-            log("=== CONNECTED DEVICES ===")
+            appendUi("=== CONNECTED DEVICES ===")
             if (list.isEmpty()) {
-                log("No connected devices")
+                appendUi("No connected devices")
                 return
             }
             
             list.forEachIndexed { i, d ->
                 val isSimulator = d.deviceIdentifier == SIMULATOR_ID
-                log("[$i] ${d.friendlyName} id=${d.deviceIdentifier} ${if (isSimulator) "[SIMULATOR]" else "[REAL]"}")
+                appendUi("[$i] ${d.friendlyName} id=${d.deviceIdentifier} ${if (isSimulator) "[SIMULATOR]" else "[REAL]"}")
             }
         } catch (t: Throwable) {
-            log("getConnectedDevices failed: ${t.message}")
+            appendUi("getConnectedDevices failed: ${t.message}")
         }
     }
 
-    private fun log(msg: String) { 
-        Log.d(TAG, msg)
+    private fun openGarminConnect() {
+        val pm: PackageManager = packageManager
+        val launch = pm.getLaunchIntentForPackage(GC_PACKAGE)
+        if (launch == null) {
+            appendUi("Garmin Connect not installed: $GC_PACKAGE")
+            toast("Garmin Connect not installed")
+            return
+        }
+        appendUi("Opening Garmin Connect…")
+        Log.d(TAG, "Launching $GC_PACKAGE")
+        startActivity(launch)
+    }
+
+    private fun appendUi(msg: String) { 
         runOnUiThread { logView.append("$msg\n") }
     }
-    private fun toast(msg: String) { Toast.makeText(this, msg, Toast.LENGTH_SHORT).show() }
+    private fun toastUi(msg: String) { 
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+        appendUi(msg) 
+    }
+    private fun toast(msg: String) { 
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show() 
+    }
 }

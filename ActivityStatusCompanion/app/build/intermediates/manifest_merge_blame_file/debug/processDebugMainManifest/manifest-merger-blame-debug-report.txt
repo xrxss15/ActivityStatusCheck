@@ -8,7 +8,7 @@
 8        android:minSdkVersion="24"
 9        android:targetSdkVersion="34" />
 10
-11    <!-- Needed so the SDK's internal socket can bind if required -->
+11    <!-- Network permissions -->
 12    <uses-permission android:name="android.permission.INTERNET" />
 12-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:5:5-67
 12-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:5:22-64
@@ -16,146 +16,161 @@
 13-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:6:5-79
 13-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:6:22-76
 14
-15    <!-- CRITICAL: Bluetooth permissions for device discovery -->
-16    <uses-permission android:name="android.permission.BLUETOOTH" />
-16-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:9:5-68
-16-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:9:22-65
-17    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
-17-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:10:5-74
-17-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:10:22-71
-18    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-18-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:11:5-79
-18-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:11:22-76
-19
-20    <!-- Android 12+ Bluetooth permissions -->
-21    <uses-permission
-21-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:14:5-15:38
-22        android:name="android.permission.BLUETOOTH_SCAN"
-22-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:14:22-70
-23        android:maxSdkVersion="30" />
-23-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:15:9-35
-24    <uses-permission
-24-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:16:5-17:38
-25        android:name="android.permission.BLUETOOTH_CONNECT"
-25-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:16:22-73
-26        android:maxSdkVersion="30" />
-26-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:17:9-35
-27
-28    <queries>
-28-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:19:5-22:15
-29        <package android:name="com.garmin.android.apps.connectmobile" />
-29-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:20:9-73
-29-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:20:18-70
-30        <package android:name="com.garmin.connectiq" />
-30-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:21:9-56
-30-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:21:18-53
-31    </queries>
+15    <!-- CRITICAL: Location permission for Bluetooth device scanning -->
+16    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+16-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:9:5-79
+16-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:9:22-76
+17    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+17-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:10:5-81
+17-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:10:22-78
+18
+19    <!-- CRITICAL: Bluetooth permissions (API 30 and below) -->
+20    <uses-permission
+20-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:13:5-14:38
+21        android:name="android.permission.BLUETOOTH"
+21-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:13:22-65
+22        android:maxSdkVersion="30" />
+22-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:14:9-35
+23    <uses-permission
+23-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:15:5-16:38
+24        android:name="android.permission.BLUETOOTH_ADMIN"
+24-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:15:22-71
+25        android:maxSdkVersion="30" />
+25-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:16:9-35
+26
+27    <!-- CRITICAL: Android 12+ Bluetooth permissions (API 31+) -->
+28    <uses-permission
+28-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:19:5-20:58
+29        android:name="android.permission.BLUETOOTH_SCAN"
+29-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:19:22-70
+30        android:usesPermissionFlags="neverForLocation" />
+30-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:20:9-55
+31    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+31-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:21:5-76
+31-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:21:22-73
 32
-33    <permission
-33-->[androidx.core:core:1.13.1] /home/vscode/.gradle/caches/8.10.2/transforms/5ed62cb32ab41c89ddf2c9e08b8b6ee4/transformed/core-1.13.1/AndroidManifest.xml:22:5-24:47
-34        android:name="net.xrxss15.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
-34-->[androidx.core:core:1.13.1] /home/vscode/.gradle/caches/8.10.2/transforms/5ed62cb32ab41c89ddf2c9e08b8b6ee4/transformed/core-1.13.1/AndroidManifest.xml:23:9-81
-35        android:protectionLevel="signature" />
-35-->[androidx.core:core:1.13.1] /home/vscode/.gradle/caches/8.10.2/transforms/5ed62cb32ab41c89ddf2c9e08b8b6ee4/transformed/core-1.13.1/AndroidManifest.xml:24:9-44
-36
-37    <uses-permission android:name="net.xrxss15.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
-37-->[androidx.core:core:1.13.1] /home/vscode/.gradle/caches/8.10.2/transforms/5ed62cb32ab41c89ddf2c9e08b8b6ee4/transformed/core-1.13.1/AndroidManifest.xml:26:5-97
-37-->[androidx.core:core:1.13.1] /home/vscode/.gradle/caches/8.10.2/transforms/5ed62cb32ab41c89ddf2c9e08b8b6ee4/transformed/core-1.13.1/AndroidManifest.xml:26:22-94
-38
-39    <application
-39-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:24:5-42:19
-40        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
-40-->[androidx.core:core:1.13.1] /home/vscode/.gradle/caches/8.10.2/transforms/5ed62cb32ab41c89ddf2c9e08b8b6ee4/transformed/core-1.13.1/AndroidManifest.xml:28:18-86
-41        android:debuggable="true"
-42        android:extractNativeLibs="false"
-43        android:label="Activity Status Companion" >
-43-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:24:18-59
-44        <activity
-44-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:25:9-32:20
-45            android:name="net.xrxss15.MainActivity"
-45-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:26:13-41
-46            android:exported="true" >
-46-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:27:13-36
-47            <intent-filter>
-47-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:28:13-31:29
-48                <action android:name="android.intent.action.MAIN" />
-48-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:29:17-69
-48-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:29:25-66
-49
-50                <category android:name="android.intent.category.LAUNCHER" />
-50-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:30:17-77
-50-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:30:27-74
-51            </intent-filter>
-52        </activity>
-53
-54        <!-- Receiver Tasker triggers with intent net.xrxss15.ACTIVITY_STATUS_CHECK -->
-55        <receiver
-55-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:35:9-41:20
-56            android:name="net.xrxss15.ActivityStatusCheckReceiver"
-56-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:36:13-56
-57            android:exported="true" >
-57-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:37:13-36
-58            <intent-filter>
-58-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:38:13-40:29
-59                <action android:name="net.xrxss15.ACTIVITY_STATUS_CHECK" />
-59-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:39:17-76
-59-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:39:25-73
-60            </intent-filter>
-61        </receiver>
-62
-63        <provider
-63-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:24:9-32:20
-64            android:name="androidx.startup.InitializationProvider"
-64-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:25:13-67
-65            android:authorities="net.xrxss15.androidx-startup"
-65-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:26:13-68
-66            android:exported="false" >
-66-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:27:13-37
-67            <meta-data
-67-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:29:13-31:52
-68                android:name="androidx.profileinstaller.ProfileInstallerInitializer"
-68-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:30:17-85
-69                android:value="androidx.startup" />
-69-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:31:17-49
-70        </provider>
+33    <!-- Tell system this app uses Bluetooth -->
+34    <uses-feature
+34-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:24:5-26:36
+35        android:name="android.hardware.bluetooth"
+35-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:25:9-50
+36        android:required="false" />
+36-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:26:9-33
+37
+38    <queries>
+38-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:28:5-31:15
+39        <package android:name="com.garmin.android.apps.connectmobile" />
+39-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:29:9-73
+39-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:29:18-70
+40        <package android:name="com.garmin.connectiq" />
+40-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:30:9-56
+40-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:30:18-53
+41    </queries>
+42
+43    <permission
+43-->[androidx.core:core:1.13.1] /home/vscode/.gradle/caches/8.10.2/transforms/5ed62cb32ab41c89ddf2c9e08b8b6ee4/transformed/core-1.13.1/AndroidManifest.xml:22:5-24:47
+44        android:name="net.xrxss15.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+44-->[androidx.core:core:1.13.1] /home/vscode/.gradle/caches/8.10.2/transforms/5ed62cb32ab41c89ddf2c9e08b8b6ee4/transformed/core-1.13.1/AndroidManifest.xml:23:9-81
+45        android:protectionLevel="signature" />
+45-->[androidx.core:core:1.13.1] /home/vscode/.gradle/caches/8.10.2/transforms/5ed62cb32ab41c89ddf2c9e08b8b6ee4/transformed/core-1.13.1/AndroidManifest.xml:24:9-44
+46
+47    <uses-permission android:name="net.xrxss15.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
+47-->[androidx.core:core:1.13.1] /home/vscode/.gradle/caches/8.10.2/transforms/5ed62cb32ab41c89ddf2c9e08b8b6ee4/transformed/core-1.13.1/AndroidManifest.xml:26:5-97
+47-->[androidx.core:core:1.13.1] /home/vscode/.gradle/caches/8.10.2/transforms/5ed62cb32ab41c89ddf2c9e08b8b6ee4/transformed/core-1.13.1/AndroidManifest.xml:26:22-94
+48
+49    <application
+49-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:33:5-50:19
+50        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
+50-->[androidx.core:core:1.13.1] /home/vscode/.gradle/caches/8.10.2/transforms/5ed62cb32ab41c89ddf2c9e08b8b6ee4/transformed/core-1.13.1/AndroidManifest.xml:28:18-86
+51        android:debuggable="true"
+52        android:extractNativeLibs="false"
+53        android:label="Activity Status Companion" >
+53-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:33:18-59
+54        <activity
+54-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:34:9-41:20
+55            android:name="net.xrxss15.MainActivity"
+55-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:35:13-41
+56            android:exported="true" >
+56-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:36:13-36
+57            <intent-filter>
+57-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:37:13-40:29
+58                <action android:name="android.intent.action.MAIN" />
+58-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:38:17-69
+58-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:38:25-66
+59
+60                <category android:name="android.intent.category.LAUNCHER" />
+60-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:39:17-77
+60-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:39:27-74
+61            </intent-filter>
+62        </activity>
+63
+64        <receiver
+64-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:43:9-49:20
+65            android:name="net.xrxss15.ActivityStatusCheckReceiver"
+65-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:44:13-56
+66            android:exported="true" >
+66-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:45:13-36
+67            <intent-filter>
+67-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:46:13-48:29
+68                <action android:name="net.xrxss15.ACTIVITY_STATUS_CHECK" />
+68-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:47:17-76
+68-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:47:25-73
+69            </intent-filter>
+70        </receiver>
 71
-72        <receiver
-72-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:34:9-52:20
-73            android:name="androidx.profileinstaller.ProfileInstallReceiver"
-73-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:35:13-76
-74            android:directBootAware="false"
-74-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:36:13-44
-75            android:enabled="true"
-75-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:37:13-35
-76            android:exported="true"
-76-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:38:13-36
-77            android:permission="android.permission.DUMP" >
-77-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:39:13-57
-78            <intent-filter>
-78-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:40:13-42:29
-79                <action android:name="androidx.profileinstaller.action.INSTALL_PROFILE" />
-79-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:41:17-91
-79-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:41:25-88
-80            </intent-filter>
-81            <intent-filter>
-81-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:43:13-45:29
-82                <action android:name="androidx.profileinstaller.action.SKIP_FILE" />
-82-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:44:17-85
-82-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:44:25-82
-83            </intent-filter>
-84            <intent-filter>
-84-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:46:13-48:29
-85                <action android:name="androidx.profileinstaller.action.SAVE_PROFILE" />
-85-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:47:17-88
-85-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:47:25-85
-86            </intent-filter>
+72        <provider
+72-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:24:9-32:20
+73            android:name="androidx.startup.InitializationProvider"
+73-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:25:13-67
+74            android:authorities="net.xrxss15.androidx-startup"
+74-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:26:13-68
+75            android:exported="false" >
+75-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:27:13-37
+76            <meta-data
+76-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:29:13-31:52
+77                android:name="androidx.profileinstaller.ProfileInstallerInitializer"
+77-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:30:17-85
+78                android:value="androidx.startup" />
+78-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:31:17-49
+79        </provider>
+80
+81        <receiver
+81-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:34:9-52:20
+82            android:name="androidx.profileinstaller.ProfileInstallReceiver"
+82-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:35:13-76
+83            android:directBootAware="false"
+83-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:36:13-44
+84            android:enabled="true"
+84-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:37:13-35
+85            android:exported="true"
+85-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:38:13-36
+86            android:permission="android.permission.DUMP" >
+86-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:39:13-57
 87            <intent-filter>
-87-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:49:13-51:29
-88                <action android:name="androidx.profileinstaller.action.BENCHMARK_OPERATION" />
-88-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:50:17-95
-88-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:50:25-92
+87-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:40:13-42:29
+88                <action android:name="androidx.profileinstaller.action.INSTALL_PROFILE" />
+88-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:41:17-91
+88-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:41:25-88
 89            </intent-filter>
-90        </receiver>
-91    </application>
-92
-93</manifest>
+90            <intent-filter>
+90-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:43:13-45:29
+91                <action android:name="androidx.profileinstaller.action.SKIP_FILE" />
+91-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:44:17-85
+91-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:44:25-82
+92            </intent-filter>
+93            <intent-filter>
+93-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:46:13-48:29
+94                <action android:name="androidx.profileinstaller.action.SAVE_PROFILE" />
+94-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:47:17-88
+94-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:47:25-85
+95            </intent-filter>
+96            <intent-filter>
+96-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:49:13-51:29
+97                <action android:name="androidx.profileinstaller.action.BENCHMARK_OPERATION" />
+97-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:50:17-95
+97-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/vscode/.gradle/caches/8.10.2/transforms/5d118aee238022377b0695907f92efe5/transformed/jetified-profileinstaller-1.3.0/AndroidManifest.xml:50:25-92
+98            </intent-filter>
+99        </receiver>
+100    </application>
+101
+102</manifest>

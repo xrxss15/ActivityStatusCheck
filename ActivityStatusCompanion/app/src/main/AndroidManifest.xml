@@ -1,21 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Needed so the SDK's internal socket can bind if required -->
+    <!-- Network permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     
-    <!-- CRITICAL: Bluetooth permissions for device discovery -->
-    <uses-permission android:name="android.permission.BLUETOOTH" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <!-- CRITICAL: Location permission for Bluetooth device scanning -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     
-    <!-- Android 12+ Bluetooth permissions -->
+    <!-- CRITICAL: Bluetooth permissions (API 30 and below) -->
+    <uses-permission android:name="android.permission.BLUETOOTH" 
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" 
+        android:maxSdkVersion="30" />
+    
+    <!-- CRITICAL: Android 12+ Bluetooth permissions (API 31+) -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" 
-        android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" 
-        android:maxSdkVersion="30" />
+        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
+    <!-- Tell system this app uses Bluetooth -->
+    <uses-feature 
+        android:name="android.hardware.bluetooth" 
+        android:required="false" />
+    
     <queries>
         <package android:name="com.garmin.android.apps.connectmobile" />
         <package android:name="com.garmin.connectiq" />
@@ -31,7 +40,6 @@
             </intent-filter>
         </activity>
 
-        <!-- Receiver Tasker triggers with intent net.xrxss15.ACTIVITY_STATUS_CHECK -->
         <receiver
             android:name=".ActivityStatusCheckReceiver"
             android:exported="true">

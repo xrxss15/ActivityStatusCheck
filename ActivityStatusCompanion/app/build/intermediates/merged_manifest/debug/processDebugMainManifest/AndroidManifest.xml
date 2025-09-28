@@ -8,6 +8,7 @@
         android:minSdkVersion="24"
         android:targetSdkVersion="34" />
 
+    <!-- Needed so the SDK’s internal socket can bind if required -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
@@ -37,6 +38,7 @@
             </intent-filter>
         </activity>
 
+        <!-- Receiver Tasker triggers with intent net.xrxss15.ACTIVITY_STATUS_CHECK -->
         <receiver
             android:name="net.xrxss15.ActivityStatusCheckReceiver"
             android:exported="true" >

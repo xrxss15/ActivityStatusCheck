@@ -1,18 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Needed so the SDK’s internal socket can bind if required -->
+    <!-- Needed so the SDK's internal socket can bind if required -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    
+    <!-- CRITICAL: Bluetooth permissions for device discovery -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    
+    <!-- Android 12+ Bluetooth permissions -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" 
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" 
+        android:maxSdkVersion="30" />
 
     <queries>
         <package android:name="com.garmin.android.apps.connectmobile" />
         <package android:name="com.garmin.connectiq" />
     </queries>
 
-    <application
-        android:label="Activity Status Companion">
-
+    <application android:label="Activity Status Companion">
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -30,6 +39,5 @@
                 <action android:name="net.xrxss15.ACTIVITY_STATUS_CHECK" />
             </intent-filter>
         </receiver>
-
     </application>
 </manifest>

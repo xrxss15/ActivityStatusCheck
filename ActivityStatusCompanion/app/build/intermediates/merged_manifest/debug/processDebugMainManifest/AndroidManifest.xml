@@ -8,9 +8,22 @@
         android:minSdkVersion="24"
         android:targetSdkVersion="34" />
 
-    <!-- Needed so the SDK’s internal socket can bind if required -->
+    <!-- Needed so the SDK's internal socket can bind if required -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- CRITICAL: Bluetooth permissions for device discovery -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
+    <!-- Android 12+ Bluetooth permissions -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:maxSdkVersion="30" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_CONNECT"
+        android:maxSdkVersion="30" />
 
     <queries>
         <package android:name="com.garmin.android.apps.connectmobile" />

@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Needed so the SDK’s internal socket can bind if required -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
@@ -21,6 +22,7 @@
             </intent-filter>
         </activity>
 
+        <!-- Receiver Tasker triggers with intent net.xrxss15.ACTIVITY_STATUS_CHECK -->
         <receiver
             android:name=".ActivityStatusCheckReceiver"
             android:exported="true">

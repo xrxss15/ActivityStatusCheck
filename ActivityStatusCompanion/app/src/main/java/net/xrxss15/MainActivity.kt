@@ -55,11 +55,10 @@ class MainActivity : Activity() {
 
     private fun hasRequiredPermissions(): Boolean {
         val requiredPermissions = mutableListOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.BLUETOOTH,
-            Manifest.permission.BLUETOOTH_ADMIN
+            Manifest.permission.ACCESS_FINE_LOCATION
         )
 
+        // For Android 12+ (API 31+), use new Bluetooth permissions
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             requiredPermissions.add(Manifest.permission.BLUETOOTH_SCAN)
             requiredPermissions.add(Manifest.permission.BLUETOOTH_CONNECT)
@@ -80,11 +79,10 @@ class MainActivity : Activity() {
 
     private fun requestRequiredPermissions() {
         val requiredPermissions = mutableListOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.BLUETOOTH,
-            Manifest.permission.BLUETOOTH_ADMIN
+            Manifest.permission.ACCESS_FINE_LOCATION
         )
 
+        // For Android 12+ (API 31+), request new Bluetooth permissions
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             requiredPermissions.add(Manifest.permission.BLUETOOTH_SCAN)
             requiredPermissions.add(Manifest.permission.BLUETOOTH_CONNECT)
@@ -117,7 +115,7 @@ class MainActivity : Activity() {
                 initializeConnectIQ()
             } else {
                 Log.e(TAG, "Not all permissions granted by user")
-                Toast.makeText(this, "Bluetooth permissions required for device discovery", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Location permission required for Bluetooth device scanning", Toast.LENGTH_LONG).show()
                 finish()
             }
         }

@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -29,8 +30,8 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
         const val EXTRA_SUCCESS = "success"
         private const val SIMULATOR_ID: Long = 12345L
         private const val APP_UUID = "5cd85684-4b48-419b-b63a-a2065368ae1e"
-        private const val QUERY_TIMEOUT_MS = 15000L // Increased timeout for reliability
-        private const val BRIDGE_SETUP_DELAY_MS = 2000L // Allow bridge time to establish
+        private const val QUERY_TIMEOUT_MS = 15000L
+        private const val BRIDGE_SETUP_DELAY_MS = 2000L
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -41,26 +42,28 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
 
         Log.d(TAG, "ActivityStatusCheckReceiver triggered by Tasker")
 
-        // Check permissions before proceeding
         if (!hasRequiredPermissions(context)) {
             Log.e(TAG, "Required permissions not granted")
-            sendResult(context, false, "Missing Bluetooth permissions", "Permissions not granted")
+            sendResult(context, false, "Missing permissions", "Location and Bluetooth permissions not granted")
             return
         }
 
         Log.d(TAG, "All required permissions verified")
         val pendingResult = goAsync()
         
-        // CRITICAL: Use correct initialization sequence for reliable communication
         initializeConnectIQWithProperSequence(context, pendingResult)
     }
 
     private fun hasRequiredPermissions(context: Context): Boolean {
-        val requiredPermissions = listOf(
-            android.Manifest.permission.ACCESS_FINE_LOCATION,
-            android.Manifest.permission.BLUETOOTH,
-            android.Manifest.permission.BLUETOOTH_ADMIN
+        val requiredPermissions = mutableListOf(
+            android.Manifest.permission.ACCESS_FINE_LOCATION
         )
+
+        // For Android 12+ (API 31+), check new Bluetooth permissions
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            requiredPermissions.add(android.Manifest.permission.BLUETOOTH_SCAN)
+            requiredPermissions.add(android.Manifest.permission.BLUETOOTH_CONNECT)
+        }
 
         val missingPermissions = requiredPermissions.filter { permission ->
             ContextCompat.checkSelfPermission(context, permission) != PackageManager.PERMISSION_GRANTED
@@ -81,14 +84,12 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
             val ciq = ConnectIQ.getInstance(context, IQConnectType.TETHERED)
             val myApp = IQApp(APP_UUID)
 
-            // CRITICAL SEQUENCE: Initialize with showUi=true FIRST for proper bridge establishment
             Log.d(TAG, "Phase 1: Initializing ConnectIQ SDK with UI prompt for bridge setup")
             
             ciq.initialize(context, true, object : ConnectIQListener {
                 override fun onSdkReady() {
                     Log.i(TAG, "Phase 1 complete: ConnectIQ SDK ready with bridge established")
                     
-                    // CRITICAL: Allow time for bridge to fully establish before querying
                     Handler(Looper.getMainLooper()).postDelayed({
                         Log.d(TAG, "Phase 2: Starting device discovery after bridge setup")
                         performDeviceQuerySequence(context, ciq, myApp, pendingResult)
@@ -136,7 +137,6 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
         Log.d(TAG, "Starting device query sequence")
         
         try {
-            // STEP 1: Get known devices (should now work with established bridge)
             val knownDevices = ciq.knownDevices
             val connectedDevices = ciq.connectedDevices
 
@@ -149,7 +149,6 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
                 return
             }
 
-            // STEP 2: Select optimal device for communication
             val targetDevice = selectOptimalDevice(ciq, knownDevices)
 
             if (targetDevice == null) {
@@ -164,7 +163,6 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
             
             Log.i(TAG, "Selected device: ${targetDevice.friendlyName}, Type: $deviceType, Status: $deviceStatus")
 
-            // STEP 3: Establish communication with selected device
             establishDeviceCommunication(context, ciq, myApp, targetDevice, knownDevices.size, connectedDevices.size, pendingResult)
 
         } catch (e: Exception) {
@@ -177,7 +175,6 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
     private fun selectOptimalDevice(ciq: ConnectIQ, knownDevices: List<IQDevice>): IQDevice? {
         Log.d(TAG, "Selecting optimal device from ${knownDevices.size} known devices")
         
-        // Priority 1: Connected real device
         val connectedRealDevice = knownDevices
             .filter { it.deviceIdentifier != SIMULATOR_ID }
             .find { ciq.getDeviceStatus(it) == IQDeviceStatus.CONNECTED }
@@ -187,14 +184,12 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
             return connectedRealDevice
         }
 
-        // Priority 2: Any real device
         val realDevice = knownDevices.find { it.deviceIdentifier != SIMULATOR_ID }
         if (realDevice != null) {
             Log.d(TAG, "Selected real device: ${realDevice.friendlyName}")
             return realDevice
         }
 
-        // Priority 3: Simulator as fallback
         val simulator = knownDevices.find { it.deviceIdentifier == SIMULATOR_ID }
         if (simulator != null) {
             Log.w(TAG, "Using simulator as fallback device")
@@ -215,7 +210,6 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
     ) {
         Log.d(TAG, "Establishing communication with ${targetDevice.friendlyName}")
 
-        // Set up timeout for the entire communication sequence
         val timeoutHandler = Handler(Looper.getMainLooper())
         val timeoutRunnable = Runnable {
             Log.w(TAG, "Communication timeout after ${QUERY_TIMEOUT_MS}ms")
@@ -227,7 +221,6 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
         try {
             Log.d(TAG, "Registering for app events from ${targetDevice.friendlyName}")
             
-            // STEP 1: Register for responses BEFORE sending message
             ciq.registerForAppEvents(targetDevice, myApp, object : IQApplicationEventListener {
                 override fun onMessageReceived(
                     device: IQDevice,
@@ -248,12 +241,10 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
                     Log.d(TAG, "Sending success result with payload: $payload")
                     sendResult(context, true, payload, debugInfo)
                     
-                    // STEP 4: Cleanup after successful communication
                     cleanupAndFinish(ciq, context, pendingResult)
                 }
             })
 
-            // STEP 2: Send the status query message
             Log.d(TAG, "Sending status query message to ${targetDevice.friendlyName}")
             
             ciq.sendMessage(targetDevice, myApp, "status?", object : ConnectIQ.IQSendMessageListener {

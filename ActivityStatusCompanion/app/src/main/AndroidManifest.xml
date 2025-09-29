@@ -1,33 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    
-    <uses-permission android:name="android.permission.BLUETOOTH" 
-        android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" 
-        android:maxSdkVersion="30" />
-    
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" 
-        android:usesPermissionFlags="neverForLocation" />
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:required="false" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" android:required="false" />
 
-    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
-    
-    <queries>
-        <package android:name="com.garmin.android.apps.connectmobile" />
-        <package android:name="com.garmin.connectiq" />
-    </queries>
+    <application
+        android:label="Activity Status Companion"
+        android:allowBackup="true"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Material3.DayNight.NoActionBar">
 
-    <application android:label="Activity Status Companion">
         <activity
             android:name=".MainActivity"
             android:exported="true">
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
 
@@ -38,5 +27,6 @@
                 <action android:name="net.xrxss15.ACTIVITY_STATUS_CHECK" />
             </intent-filter>
         </receiver>
+
     </application>
 </manifest>

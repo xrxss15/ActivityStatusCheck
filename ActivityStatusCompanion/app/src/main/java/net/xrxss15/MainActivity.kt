@@ -2,16 +2,12 @@ package net.xrxss15
 
 import android.Manifest
 import android.app.Activity
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import android.view.Gravity
 import android.widget.*
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -29,13 +25,11 @@ class MainActivity : Activity() {
     private lateinit var devicesSpinner: Spinner
     private lateinit var refreshBtn: Button
     private lateinit var initBtn: Button
-    private lateinit var shutdownBtn: Button
     private lateinit var queryBtn: Button
-    private lateinit var clearBtn: Button
     private lateinit var copyBtn: Button
-    private lateinit var permsView: TextView
-    private val handler = Handler(Looper.getMainLooper())
+    private lateinit var clearBtn: Button
 
+    private val handler = Handler(Looper.getMainLooper())
     private val connectIQService = ConnectIQService.getInstance()
     private var devices: List<IQDevice> = emptyList()
 
@@ -45,42 +39,25 @@ class MainActivity : Activity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(16, 16, 16, 16)
+            setPadding(24, 24, 24, 24)
         }
-
         val header = TextView(this).apply {
             text = "Activity Status Companion (BLE)"
             textSize = 20f
-            gravity = Gravity.CENTER_HORIZONTAL
         }
-        root.addView(header, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        ))
+        root.addView(header)
 
-        permsView = TextView(this).apply { textSize = 12f }
-        root.addView(permsView)
-
-        val row1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         initBtn = Button(this).apply { text = "Initialize" }
-        shutdownBtn = Button(this).apply { text = "Shutdown" }
         refreshBtn = Button(this).apply { text = "Refresh Devices" }
-        row1.addView(initBtn)
-        row1.addView(shutdownBtn)
-        row1.addView(refreshBtn)
-        root.addView(row1)
+        queryBtn = Button(this).apply { text = "Query Status" }
+        copyBtn = Button(this).apply { text = "Copy Log" }
+        clearBtn = Button(this).apply { text = "Clear Log" }
+        row.addView(initBtn); row.addView(refreshBtn); row.addView(queryBtn); row.addView(copyBtn); row.addView(clearBtn)
+        root.addView(row)
 
         devicesSpinner = Spinner(this)
         root.addView(devicesSpinner)
-
-        val row2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        queryBtn = Button(this).apply { text = "Query Activity Status" }
-        clearBtn = Button(this).apply { text = "Clear Log" }
-        copyBtn = Button(this).apply { text = "Copy Log" }
-        row2.addView(queryBtn)
-        row2.addView(clearBtn)
-        row2.addView(copyBtn)
-        root.addView(row2)
 
         scroll = ScrollView(this)
         logView = TextView(this).apply {
@@ -88,42 +65,32 @@ class MainActivity : Activity() {
             typeface = android.graphics.Typeface.MONOSPACE
         }
         scroll.addView(logView)
-        root.addView(scroll, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            0, 1f
-        ))
+        root.addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
 
         setContentView(root)
 
-        connectIQService.registerLogSink { line -> appendLog(line) }
+        connectIQService.registerLogSink { appendLog(it) }
 
         if (!hasRequiredPermissions()) {
             requestRequiredPermissions()
         } else {
-            updatePermsUi(granted = true)
+            appendLog("[MAIN] Permissions OK")
         }
 
         initBtn.setOnClickListener {
-            val ok = connectIQService.ensureInitialized(this, showUi = true)
-            appendLog("[MAIN] ensureInitialized(showUi=true) -> $ok")
-            if (ok) reloadDevices()
+            Thread {
+                appendLog("[MAIN] Initializing CIQ (UI)")
+                val ok = initWithUi()
+                appendLog("[MAIN] Initialized=$ok")
+                if (ok) reloadDevices()
+            }.start()
         }
-        shutdownBtn.setOnClickListener {
-            connectIQService.shutdown(applicationContext)
-            appendLog("[MAIN] shutdown() requested")
-            reloadDevices()
-        }
-        refreshBtn.setOnClickListener { reloadDevices() }
 
-        clearBtn.setOnClickListener { logView.text = "" }
-        copyBtn.setOnClickListener {
-            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            cm.setPrimaryClip(ClipData.newPlainText("ActStatus log", logView.text))
-            Toast.makeText(this, "Log copied", Toast.LENGTH_SHORT).show()
-        }
+        refreshBtn.setOnClickListener { reloadDevices() }
 
         queryBtn.setOnClickListener {
             Thread {
+                appendLog("[MAIN] Query start")
                 val selected = devices.getOrNull(devicesSpinner.selectedItemPosition)
                 val res = connectIQService.queryActivityStatus(
                     context = this,
@@ -135,10 +102,25 @@ class MainActivity : Activity() {
             }.start()
         }
 
-        handler.post {
-            val ok = connectIQService.ensureInitialized(this, showUi = true)
-            appendLog("[MAIN] auto-init -> $ok")
-            reloadDevices()
+        copyBtn.setOnClickListener {
+            val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("ActStatus log", logView.text))
+            Toast.makeText(this, "Log copied", Toast.LENGTH_SHORT).show()
+        }
+
+        clearBtn.setOnClickListener { logView.text = "" }
+
+        appendLog("Activity Status Companion ready")
+        appendLog("App UUID: 7b408c6e-fc9c-4080-bad4-97a3557fc995")
+    }
+
+    private fun initWithUi(): Boolean {
+        return try {
+            connectIQService.queryActivityStatus(this, null, true)
+            true
+        } catch (e: Exception) {
+            appendLog("[MAIN] init failed: ${e.message}")
+            false
         }
     }
 
@@ -149,12 +131,16 @@ class MainActivity : Activity() {
             setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         }
         devicesSpinner.adapter = adapter
-        appendLog("[MAIN] devices real-connected=${devices.size}")
+        if (devices.isEmpty()) {
+            appendLog("[MAIN] No connected devices detected")
+        } else {
+            appendLog("[MAIN] Devices: ${labels.joinToString()}")
+        }
     }
 
     private fun appendLog(line: String) {
+        val ts = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
         handler.post {
-            val ts = String.format("%tT", System.currentTimeMillis())
             logView.append("[$ts] $line\n")
             scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
         }
@@ -162,9 +148,7 @@ class MainActivity : Activity() {
     }
 
     private fun hasRequiredPermissions(): Boolean {
-        val needs = mutableListOf(
-            Manifest.permission.ACCESS_FINE_LOCATION
-        )
+        val needs = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
         if (Build.VERSION.SDK_INT >= 31) {
             needs.add(Manifest.permission.BLUETOOTH_SCAN)
             needs.add(Manifest.permission.BLUETOOTH_CONNECT)
@@ -175,35 +159,23 @@ class MainActivity : Activity() {
     }
 
     private fun requestRequiredPermissions() {
-        val perms = mutableListOf(
-            Manifest.permission.ACCESS_FINE_LOCATION
-        )
+        val perms = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
         if (Build.VERSION.SDK_INT >= 31) {
             perms.add(Manifest.permission.BLUETOOTH_SCAN)
             perms.add(Manifest.permission.BLUETOOTH_CONNECT)
         }
         ActivityCompat.requestPermissions(this, perms.toTypedArray(), PERMISSION_REQUEST_CODE)
-        updatePermsUi(granted = false)
     }
 
-    private fun updatePermsUi(granted: Boolean) {
-        permsView.text = if (granted) {
-            "Permissions OK (Location, Bluetooth)"
-        } else {
-            "Permissions missing: Location and Bluetooth (grant to use BLE messaging)"
-        }
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == PERMISSION_REQUEST_CODE) {
-            val allGranted = grantResults.all { it == PackageManager.PERMISSION_GRANTED }
-            updatePermsUi(granted = allGranted)
-            appendLog("[PERMS] onRequestPermissionsResult allGranted=$allGranted")
+            if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                appendLog("[MAIN] Permissions granted")
+            } else {
+                appendLog("[MAIN] Permissions denied")
+                Toast.makeText(this, "Location/Bluetooth permission required", Toast.LENGTH_LONG).show()
+            }
         }
     }
 }

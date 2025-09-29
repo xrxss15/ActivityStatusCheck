@@ -8,32 +8,39 @@ android {
     compileSdk 34
 
     defaultConfig {
-        applicationId 'net.xrxss15'
+        applicationId "net.xrxss15"
         minSdk 24
         targetSdk 34
         versionCode 1
         versionName "1.0"
     }
+
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
-        debug {
-            minifyEnabled false
-        }
+        debug { minifyEnabled false }
     }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = '17'
-    }
+    kotlinOptions { jvmTarget = '17' }
 }
 
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.24"
-    implementation "androidx.core:core-ktx:1.13.1"
+
+    // Garmin Connect IQ Mobile SDK (use version available on Maven Central)
     implementation "com.garmin.connectiq:ciq-companion-app-sdk:2.3.0@aar"
+
+    // AndroidX WorkManager for background execution from BroadcastReceiver
+    implementation "androidx.work:work-runtime-ktx:2.9.0"
+
+    // AndroidX basics
+    implementation "androidx.core:core-ktx:1.13.1"
+    implementation "androidx.appcompat:appcompat:1.7.0"
+    implementation "com.google.android.material:material:1.12.0"
 }

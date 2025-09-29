@@ -4,6 +4,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 
 class ActivityStatusCheckReceiver : BroadcastReceiver() {
 
@@ -11,12 +14,14 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
         private const val TAG = "ActStatus"
 
         const val ACTION_TRIGGER = "net.xrxss15.ACTIVITY_STATUS_CHECK"
-        const val ACTION_RESULT = "net.xrxss15.ACTIVITY_STATUS_RESULT"
+        const val ACTION_RESULT  = "net.xrxss15.ACTIVITY_STATUS_RESULT"
 
-        const val EXTRA_PAYLOAD = "payload"
-        const val EXTRA_DEBUG = "debug"
-        const val EXTRA_SUCCESS = "success"
+        const val EXTRA_PAYLOAD      = "payload"
+        const val EXTRA_DEBUG        = "debug"
+        const val EXTRA_SUCCESS      = "success"
         const val EXTRA_DEVICE_COUNT = "deviceCount"
+
+        private const val UNIQUE_WORK = "ciq_query_work"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -24,23 +29,9 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
             Log.d(TAG, "[RECEIVER] Ignoring action: ${intent.action}")
             return
         }
-        Log.i(TAG, "[RECEIVER] Triggered by automation")
-        val pending = goAsync()
-        Thread {
-            val svc = ConnectIQService.getInstance()
-            val result = svc.queryActivityStatus(
-                context = context,
-                selected = null,
-                showUiIfInitNeeded = false
-            )
-            val out = Intent(ACTION_RESULT).apply {
-                putExtra(EXTRA_SUCCESS, result.success)
-                putExtra(EXTRA_PAYLOAD, result.payload)
-                putExtra(EXTRA_DEBUG, result.debug)
-                putExtra(EXTRA_DEVICE_COUNT, result.connectedRealDevices)
-            }
-            context.sendBroadcast(out)
-            pending.finish()
-        }.start()
+        Log.i(TAG, "[RECEIVER] Triggered, enqueuing WorkManager job")
+        val req = OneTimeWorkRequestBuilder<ConnectIQQueryWorker>().build()
+        WorkManager.getInstance(context.applicationContext)
+            .enqueueUniqueWork(UNIQUE_WORK, ExistingWorkPolicy.REPLACE, req)
     }
 }

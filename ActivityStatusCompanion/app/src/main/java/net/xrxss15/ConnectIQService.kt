@@ -23,11 +23,10 @@ class ConnectIQService private constructor() {
 
     companion object {
         private const val APP_UUID = "7b408c6e-fc9c-4080-bad4-97a3557fc995"
-
         private const val RESPONSE_TIMEOUT_MS = 15_000L
-        private const val SEND_STATUS_WAIT_MS  = 800L
-        private const val DISCOVERY_DELAY_MS   = 500L
-        private const val KNOWN_SIMULATOR_ID   = 12345L
+        private const val SEND_STATUS_WAIT_MS = 800L
+        private const val DISCOVERY_DELAY_MS = 500L
+        private const val KNOWN_SIMULATOR_ID = 12345L
 
         @Volatile private var INSTANCE: ConnectIQService? = null
         fun getInstance(): ConnectIQService =
@@ -49,14 +48,13 @@ class ConnectIQService private constructor() {
     private var appContext: Context? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
-
     private val deviceListeners = mutableMapOf<String, (IQDevice, IQDevice.IQDeviceStatus) -> Unit>()
     private val appListeners = mutableMapOf<String, IQApplicationEventListener>()
 
     @Volatile private var logSink: ((String) -> Unit)? = null
-    fun registerLogSink(sink: ((String) -> Unit)?) { logSink = sink } // GUI-only [attached_file:3]
-    private fun ts(): String = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date()) // [attached_file:3]
-    fun log(message: String) { logSink?.invoke(message) } // public for Worker use [attached_file:3]
+    fun registerLogSink(sink: ((String) -> Unit)?) { logSink = sink }
+    private fun ts(): String = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
+    fun log(message: String) { logSink?.invoke(message) }
 
     fun hasRequiredPermissions(ctx: Context): Boolean {
         val needs = mutableListOf(android.Manifest.permission.ACCESS_FINE_LOCATION)
@@ -64,9 +62,7 @@ class ConnectIQService private constructor() {
             needs.add(android.Manifest.permission.BLUETOOTH_SCAN)
             needs.add(android.Manifest.permission.BLUETOOTH_CONNECT)
         }
-        val ok = needs.all {
-            ContextCompat.checkSelfPermission(ctx, it) == PackageManager.PERMISSION_GRANTED
-        }
+        val ok = needs.all { ContextCompat.checkSelfPermission(ctx, it) == PackageManager.PERMISSION_GRANTED }
         log("[${ts()}] [PERMS] ${if (ok) "All required permissions granted" else "Missing: $needs"}")
         return ok
     }
@@ -112,7 +108,6 @@ class ConnectIQService private constructor() {
             }
             return false
         }
-
         if (initInProgress.get()) {
             repeat(40) {
                 if (initialized.get()) return true
@@ -120,7 +115,6 @@ class ConnectIQService private constructor() {
             }
             return initialized.get()
         }
-
         initInProgress.set(true)
         try {
             appContext = context.applicationContext
@@ -263,7 +257,7 @@ class ConnectIQService private constructor() {
 
         val appListener = IQApplicationEventListener { device, iqApp, messages, status ->
             val rxTime = ts()
-            val payload = if (messages.isNullOrEmpty()) "<empty>" else messages.joinToString("|") { it.toString() }
+            val payload = if (messages.isNullOrEmpty()) "" else messages.joinToString("|") { it.toString() }
             log("[$rxTime] [RX] <- dev=${device.friendlyName} id=${device.deviceIdentifier} app=${iqApp.applicationId} status=$status size=${messages?.size ?: 0} payload=$payload")
             if (!messages.isNullOrEmpty()) {
                 responseBuf.append(payload)
@@ -311,7 +305,7 @@ class ConnectIQService private constructor() {
             appendLine("status=${target.status}")
             appendLine("app=$APP_UUID")
             appendLine("sendStatus=${sendStatus ?: "null"}")
-            appendLine("response=${if (got.get()) responseBuf.toString() else "<none>"}")
+            appendLine("response=${if (got.get()) responseBuf.toString() else ""}")
             appendLine("connectedRealDevices=${devices.size}")
         }
 

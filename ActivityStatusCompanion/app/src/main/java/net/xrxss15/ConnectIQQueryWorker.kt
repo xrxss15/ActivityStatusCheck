@@ -28,7 +28,6 @@ class ConnectIQQueryWorker(appContext: Context, params: WorkerParameters) : Work
             putExtra(ActivityStatusCheckReceiver.EXTRA_DEVICE_COUNT, res.connectedRealDevices)
         }
         ctx.sendBroadcast(out)
-
         return Result.success()
     }
 }

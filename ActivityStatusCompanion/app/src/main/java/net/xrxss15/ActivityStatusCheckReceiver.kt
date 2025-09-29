@@ -12,15 +12,12 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
 
     companion object {
         private const val TAG = "ActStatus"
-
         const val ACTION_TRIGGER = "net.xrxss15.ACTIVITY_STATUS_CHECK"
         const val ACTION_RESULT  = "net.xrxss15.ACTIVITY_STATUS_RESULT"
-
         const val EXTRA_PAYLOAD      = "payload"
         const val EXTRA_DEBUG        = "debug"
         const val EXTRA_SUCCESS      = "success"
         const val EXTRA_DEVICE_COUNT = "deviceCount"
-
         private const val UNIQUE_WORK = "ciq_query_work"
     }
 

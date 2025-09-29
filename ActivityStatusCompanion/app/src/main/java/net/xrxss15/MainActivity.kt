@@ -77,13 +77,13 @@ class MainActivity : Activity() {
             appendLog("[MAIN] Permissions OK")
         }
 
-        // Run initialization off the UI thread to avoid deadlocks
+        // Initialize runs off-UI, but reloadDevices is posted to UI thread
         initBtn.setOnClickListener {
             Thread {
                 appendLog("[MAIN] Initializing CIQ (UI)")
                 val ok = initWithUi()
                 appendLog("[MAIN] Initialized=$ok")
-                if (ok) reloadDevices()
+                if (ok) handler.post { reloadDevices() }
             }.start()
         }
 
@@ -114,12 +114,11 @@ class MainActivity : Activity() {
         appendLog("Activity Status Companion ready")
         appendLog("App UUID: 7b408c6e-fc9c-4080-bad4-97a3557fc995")
 
-        // Removed the previous auto-init via handler.post to prevent main-thread blocking
+        // No auto-init on main to avoid main-thread blocking
     }
 
     private fun initWithUi(): Boolean {
         return try {
-            // This runs on a background thread; ensureInitialized will block safely there
             connectIQService.queryActivityStatus(this, null, true)
             true
         } catch (e: Exception) {
@@ -128,18 +127,24 @@ class MainActivity : Activity() {
         }
     }
 
+    // Safe reload: fetch on worker, update UI on main
     private fun reloadDevices() {
-        devices = connectIQService.getConnectedRealDevices(this)
-        val labels = devices.map { "${it.friendlyName} (${it.deviceIdentifier})" }
-        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, labels).apply {
-            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        }
-        devicesSpinner.adapter = adapter
-        if (devices.isEmpty()) {
-            appendLog("[MAIN] No connected devices detected")
-        } else {
-            appendLog("[MAIN] Devices: ${labels.joinToString()}")
-        }
+        Thread {
+            val ds = connectIQService.getConnectedRealDevices(this)
+            val labels = ds.map { "${it.friendlyName} (${it.deviceIdentifier})" }
+            handler.post {
+                devices = ds
+                val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, labels).apply {
+                    setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                }
+                devicesSpinner.adapter = adapter
+                if (devices.isEmpty()) {
+                    appendLog("[MAIN] No connected devices detected")
+                } else {
+                    appendLog("[MAIN] Devices: ${labels.joinToString()}")
+                }
+            }
+        }.start()
     }
 
     private fun appendLog(line: String) {

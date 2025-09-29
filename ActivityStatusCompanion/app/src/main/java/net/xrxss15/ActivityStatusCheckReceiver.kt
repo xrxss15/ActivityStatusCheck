@@ -8,9 +8,11 @@ import android.util.Log
 class ActivityStatusCheckReceiver : BroadcastReceiver() {
 
     companion object {
-        private const val TAG = "ActStatusReceiver"
+        private const val TAG = "ActStatus"
+
         const val ACTION_TRIGGER = "net.xrxss15.ACTIVITY_STATUS_CHECK"
         const val ACTION_RESULT = "net.xrxss15.ACTIVITY_STATUS_RESULT"
+
         const val EXTRA_PAYLOAD = "payload"
         const val EXTRA_DEBUG = "debug"
         const val EXTRA_SUCCESS = "success"
@@ -22,49 +24,23 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
             Log.d(TAG, "[RECEIVER] Ignoring action: ${intent.action}")
             return
         }
-        
-        Log.i(TAG, "[RECEIVER] Triggered by Tasker")
-        val pendingResult = goAsync()
-        val connectIQService = ConnectIQService.getInstance()
-        
-        // CRITICAL: Background queries should try showUi=false first
-        connectIQService.queryActivityStatus(
-            context = context, 
-            tag = TAG, 
-            showUi = false, // Service handles UI fallback automatically
-            callback = object : ConnectIQService.StatusQueryCallback {
-                override fun onSuccess(payload: String, debug: String) {
-                    Log.i(TAG, "[RECEIVER] Query SUCCESS: $payload")
-                    sendResult(context, true, payload, debug)
-                    pendingResult.finish()
-                }
-
-                override fun onFailure(error: String, debug: String) {
-                    Log.e(TAG, "[RECEIVER] Query FAILED: $error")
-                    sendResult(context, false, error, debug)
-                    pendingResult.finish()
-                }
-
-                override fun onLog(tag: String, message: String, level: ConnectIQService.LogLevel) {
-                    when (level) {
-                        ConnectIQService.LogLevel.ERROR -> Log.e(tag, message)
-                        ConnectIQService.LogLevel.WARN -> Log.w(tag, message)
-                        ConnectIQService.LogLevel.INFO -> Log.i(tag, message)
-                        ConnectIQService.LogLevel.DEBUG -> Log.d(tag, message)
-                    }
-                }
+        Log.i(TAG, "[RECEIVER] Triggered by automation")
+        val pending = goAsync()
+        Thread {
+            val svc = ConnectIQService.getInstance()
+            val result = svc.queryActivityStatus(
+                context = context,
+                selected = null,
+                showUiIfInitNeeded = false
+            )
+            val out = Intent(ACTION_RESULT).apply {
+                putExtra(EXTRA_SUCCESS, result.success)
+                putExtra(EXTRA_PAYLOAD, result.payload)
+                putExtra(EXTRA_DEBUG, result.debug)
+                putExtra(EXTRA_DEVICE_COUNT, result.connectedRealDevices)
             }
-        )
-    }
-
-    private fun sendResult(context: Context, success: Boolean, payload: String, debug: String) {
-        val resultIntent = Intent(ACTION_RESULT).apply {
-            putExtra(EXTRA_SUCCESS, success)
-            putExtra(EXTRA_PAYLOAD, payload)
-            putExtra(EXTRA_DEBUG, debug)
-            putExtra(EXTRA_DEVICE_COUNT, if (success) 1 else 0)
-        }
-        Log.i(TAG, "[RECEIVER] Broadcasting result: success=$success, payload='$payload'")
-        context.sendBroadcast(resultIntent)
+            context.sendBroadcast(out)
+            pending.finish()
+        }.start()
     }
 }

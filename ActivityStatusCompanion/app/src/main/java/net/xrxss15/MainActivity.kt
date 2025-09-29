@@ -2,153 +2,208 @@ package net.xrxss15
 
 import android.Manifest
 import android.app.Activity
-import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import android.widget.Button
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
-import android.widget.Toast
+import android.view.Gravity
+import android.widget.*
 import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import com.garmin.android.connectiq.IQDevice
 
 class MainActivity : Activity() {
 
     companion object {
-        private const val TAG = "ActStatusMain"
+        private const val TAG = "ActStatus"
         private const val PERMISSION_REQUEST_CODE = 100
     }
 
     private lateinit var logView: TextView
+    private lateinit var scroll: ScrollView
+    private lateinit var devicesSpinner: Spinner
+    private lateinit var refreshBtn: Button
+    private lateinit var initBtn: Button
+    private lateinit var shutdownBtn: Button
+    private lateinit var queryBtn: Button
+    private lateinit var clearBtn: Button
+    private lateinit var copyBtn: Button
+    private lateinit var permsView: TextView
     private val handler = Handler(Looper.getMainLooper())
+
     private val connectIQService = ConnectIQService.getInstance()
+    private var devices: List<IQDevice> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.d(TAG, "[MAIN] onCreate")
-        
-        if (!connectIQService.hasRequiredPermissions(this)) {
-            Log.w(TAG, "[MAIN] Permissions missing, requesting")
-            requestRequiredPermissions()
-            return
-        }
-        
-        setupUI()
-        Log.d(TAG, "[MAIN] Setup complete")
-    }
 
-    private fun requestRequiredPermissions() {
-        val required = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            required.add(Manifest.permission.BLUETOOTH_SCAN)
-            required.add(Manifest.permission.BLUETOOTH_CONNECT)
-        }
-        Log.d(TAG, "[MAIN] Requesting ${required.size} permissions")
-        ActivityCompat.requestPermissions(this, required.toTypedArray(), PERMISSION_REQUEST_CODE)
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == PERMISSION_REQUEST_CODE) {
-            val granted = grantResults.count { it == PackageManager.PERMISSION_GRANTED }
-            Log.d(TAG, "[MAIN] Permission result: $granted/${grantResults.size} granted")
-            
-            if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                setupUI()
-            } else {
-                Toast.makeText(this, "Location/Bluetooth permission required", Toast.LENGTH_LONG).show()
-                finish()
-            }
-        }
-    }
-
-    private fun setupUI() {
-        val mainLayout = LinearLayout(this).apply {
+        val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(32, 32, 32, 32)
+            setPadding(16, 16, 16, 16)
         }
-        
-        val scrollView = ScrollView(this)
+
+        val header = TextView(this).apply {
+            text = "Activity Status Companion (BLE)"
+            textSize = 20f
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+        root.addView(header, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+
+        permsView = TextView(this).apply { textSize = 12f }
+        root.addView(permsView)
+
+        val row1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        initBtn = Button(this).apply { text = "Initialize" }
+        shutdownBtn = Button(this).apply { text = "Shutdown" }
+        refreshBtn = Button(this).apply { text = "Refresh Devices" }
+        row1.addView(initBtn)
+        row1.addView(shutdownBtn)
+        row1.addView(refreshBtn)
+        root.addView(row1)
+
+        devicesSpinner = Spinner(this)
+        root.addView(devicesSpinner)
+
+        val row2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        queryBtn = Button(this).apply { text = "Query Activity Status" }
+        clearBtn = Button(this).apply { text = "Clear Log" }
+        copyBtn = Button(this).apply { text = "Copy Log" }
+        row2.addView(queryBtn)
+        row2.addView(clearBtn)
+        row2.addView(copyBtn)
+        root.addView(row2)
+
+        scroll = ScrollView(this)
         logView = TextView(this).apply {
             textSize = 12f
             typeface = android.graphics.Typeface.MONOSPACE
         }
-        scrollView.addView(logView)
+        scroll.addView(logView)
+        root.addView(scroll, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            0, 1f
+        ))
 
-        val queryButton = Button(this).apply {
-            text = "Query Activity Status"
-            setOnClickListener { 
-                Log.d(TAG, "[MAIN] Query button clicked")
-                queryActivityStatus() 
-            }
+        setContentView(root)
+
+        connectIQService.registerLogSink { line -> appendLog(line) }
+
+        if (!hasRequiredPermissions()) {
+            requestRequiredPermissions()
+        } else {
+            updatePermsUi(granted = true)
         }
 
-        val scrollParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
-        mainLayout.addView(scrollView, scrollParams)
-        mainLayout.addView(queryButton)
-        
-        setContentView(mainLayout)
-        logUI("Activity Status Companion v2.0")
-        logUI("App UUID: 7b408c6e-fc9c-4080-bad4-97a3557fc995")
-        logUI("Ready for testing - press button to query")
-    }
+        initBtn.setOnClickListener {
+            val ok = connectIQService.ensureInitialized(this, showUi = true)
+            appendLog("[MAIN] ensureInitialized(showUi=true) -> $ok")
+            if (ok) reloadDevices()
+        }
+        shutdownBtn.setOnClickListener {
+            connectIQService.shutdown(applicationContext)
+            appendLog("[MAIN] shutdown() requested")
+            reloadDevices()
+        }
+        refreshBtn.setOnClickListener { reloadDevices() }
 
-    private fun queryActivityStatus() {
-        logUI("=== STARTING QUERY ===")
-        Log.i(TAG, "[MAIN] Starting status query via service")
-        
-        connectIQService.queryActivityStatus(
-            context = this, 
-            tag = TAG, 
-            showUi = true, // GUI always uses UI mode
-            callback = object : ConnectIQService.StatusQueryCallback {
-                override fun onSuccess(payload: String, debug: String) {
-                    Log.i(TAG, "[MAIN] Query SUCCESS: $payload")
-                    logUI("=== SUCCESS ===")
-                    logUI("Response: $payload")
-                    logUI("Debug: $debug")
-                }
+        clearBtn.setOnClickListener { logView.text = "" }
+        copyBtn.setOnClickListener {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("ActStatus log", logView.text))
+            Toast.makeText(this, "Log copied", Toast.LENGTH_SHORT).show()
+        }
 
-                override fun onFailure(error: String, debug: String) {
-                    Log.e(TAG, "[MAIN] Query FAILED: $error")
-                    logUI("=== FAILED ===")
-                    logUI("Error: $error")
-                    logUI("Debug: $debug")
-                }
+        queryBtn.setOnClickListener {
+            Thread {
+                val selected = devices.getOrNull(devicesSpinner.selectedItemPosition)
+                val res = connectIQService.queryActivityStatus(
+                    context = this,
+                    selected = selected,
+                    showUiIfInitNeeded = true
+                )
+                appendLog("[QUERY] success=${res.success} payload='${res.payload}'")
+                appendLog("[QUERY] debug:\n${res.debug.trim()}")
+            }.start()
+        }
 
-                override fun onLog(tag: String, message: String, level: ConnectIQService.LogLevel) {
-                    when (level) {
-                        ConnectIQService.LogLevel.ERROR -> Log.e(tag, message)
-                        ConnectIQService.LogLevel.WARN -> Log.w(tag, message)
-                        ConnectIQService.LogLevel.INFO -> Log.i(tag, message)
-                        ConnectIQService.LogLevel.DEBUG -> Log.d(tag, message)
-                    }
-                    
-                    // Show important messages in UI
-                    if (level == ConnectIQService.LogLevel.INFO || level == ConnectIQService.LogLevel.ERROR) {
-                        logUI(message.removePrefix("[SERVICE] ").removePrefix("[CIQ-API] "))
-                    }
-                }
-            }
-        )
-    }
-
-    private fun logUI(message: String) {
-        val ts = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
         handler.post {
-            logView.append("[$ts] $message\n")
-            (logView.parent as? ScrollView)?.post { 
-                (logView.parent as ScrollView).fullScroll(ScrollView.FOCUS_DOWN) 
-            }
+            val ok = connectIQService.ensureInitialized(this, showUi = true)
+            appendLog("[MAIN] auto-init -> $ok")
+            reloadDevices()
         }
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        Log.d(TAG, "[MAIN] onDestroy")
+    private fun reloadDevices() {
+        devices = connectIQService.getConnectedRealDevices(this)
+        val labels = devices.map { "${it.friendlyName} (${it.deviceIdentifier})" }
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, labels).apply {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+        devicesSpinner.adapter = adapter
+        appendLog("[MAIN] devices real-connected=${devices.size}")
+    }
+
+    private fun appendLog(line: String) {
+        handler.post {
+            val ts = String.format("%tT", System.currentTimeMillis())
+            logView.append("[$ts] $line\n")
+            scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
+        }
+        Log.d(TAG, line)
+    }
+
+    private fun hasRequiredPermissions(): Boolean {
+        val needs = mutableListOf(
+            Manifest.permission.ACCESS_FINE_LOCATION
+        )
+        if (Build.VERSION.SDK_INT >= 31) {
+            needs.add(Manifest.permission.BLUETOOTH_SCAN)
+            needs.add(Manifest.permission.BLUETOOTH_CONNECT)
+        }
+        return needs.all {
+            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    private fun requestRequiredPermissions() {
+        val perms = mutableListOf(
+            Manifest.permission.ACCESS_FINE_LOCATION
+        )
+        if (Build.VERSION.SDK_INT >= 31) {
+            perms.add(Manifest.permission.BLUETOOTH_SCAN)
+            perms.add(Manifest.permission.BLUETOOTH_CONNECT)
+        }
+        ActivityCompat.requestPermissions(this, perms.toTypedArray(), PERMISSION_REQUEST_CODE)
+        updatePermsUi(granted = false)
+    }
+
+    private fun updatePermsUi(granted: Boolean) {
+        permsView.text = if (granted) {
+            "Permissions OK (Location, Bluetooth)"
+        } else {
+            "Permissions missing: Location and Bluetooth (grant to use BLE messaging)"
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            val allGranted = grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+            updatePermsUi(granted = allGranted)
+            appendLog("[PERMS] onRequestPermissionsResult allGranted=$allGranted")
+        }
     }
 }

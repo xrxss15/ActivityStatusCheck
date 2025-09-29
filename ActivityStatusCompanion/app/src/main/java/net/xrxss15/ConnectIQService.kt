@@ -24,7 +24,6 @@ class ConnectIQService private constructor() {
     companion object {
         private const val APP_UUID = "7b408c6e-fc9c-4080-bad4-97a3557fc995"
         private const val RESPONSE_TIMEOUT_MS = 15_000L
-        private const val SEND_STATUS_WAIT_MS = 800L
         private const val DISCOVERY_DELAY_MS = 500L
         private const val KNOWN_SIMULATOR_ID = 12345L
 
@@ -272,30 +271,17 @@ class ConnectIQService private constructor() {
             log("[${ts()}] [APP] registerForAppEvents failed: ${e.message}")
         }
 
-        fun sendOnceAwait(): IQMessageStatus? {
-            val result = arrayOfNulls<IQMessageStatus>(1)
-            val sLatch = CountDownLatch(1)
-            val txTime = ts()
-            log("[$txTime] [TX] -> dev=${target.friendlyName} id=${target.deviceIdentifier} app=$APP_UUID payload=status?")
-            try {
-                ciq.sendMessage(target, app, listOf("status?"), object : ConnectIQ.IQSendMessageListener {
-                    override fun onMessageStatus(device: IQDevice, iqApp: IQApp, status: IQMessageStatus) {
-                        result[0] = status
-                        log("[${ts()}] [TX-ACK] dev=${device.friendlyName} id=${device.deviceIdentifier} app=${iqApp.applicationId} status=$status")
-                        sLatch.countDown()
-                    }
-                })
-            } catch (e: Exception) {
-                log("[${ts()}] [SEND] Exception: ${e.message}")
-                sLatch.countDown()
-            }
-            sLatch.await(SEND_STATUS_WAIT_MS, TimeUnit.MILLISECONDS)
-            return result[0]
-        }
-
-        var sendStatus = sendOnceAwait()
-        if (sendStatus == null) {
-            sendStatus = sendOnceAwait()
+        // Send exactly once (no retry) to eliminate double TX logs
+        val txTime = ts()
+        log("[$txTime] [TX] -> dev=${target.friendlyName} id=${target.deviceIdentifier} app=$APP_UUID payload=status?")
+        try {
+            ciq.sendMessage(target, app, listOf("status?"), object : ConnectIQ.IQSendMessageListener {
+                override fun onMessageStatus(device: IQDevice, iqApp: IQApp, status: IQMessageStatus) {
+                    log("[${ts()}] [TX-ACK] dev=${device.friendlyName} id=${device.deviceIdentifier} app=${iqApp.applicationId} status=$status")
+                }
+            })
+        } catch (e: Exception) {
+            log("[${ts()}] [SEND] Exception: ${e.message}")
         }
 
         latch.await(RESPONSE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
@@ -304,7 +290,7 @@ class ConnectIQService private constructor() {
             appendLine("device=${target.friendlyName} (${target.deviceIdentifier})")
             appendLine("status=${target.status}")
             appendLine("app=$APP_UUID")
-            appendLine("sendStatus=${sendStatus ?: "null"}")
+            appendLine("sendStatus=<see TX-ACK lines>")
             appendLine("response=${if (got.get()) responseBuf.toString() else ""}")
             appendLine("connectedRealDevices=${devices.size}")
         }

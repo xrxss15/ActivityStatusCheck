@@ -7,18 +7,15 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import android.widget.*
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.garmin.android.connectiq.IQDevice
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : Activity() {
-
-    companion object {
-        private const val TAG = "ActStatus"
-        private const val PERMISSION_REQUEST_CODE = 100
-    }
 
     private lateinit var logView: TextView
     private lateinit var scroll: ScrollView
@@ -33,9 +30,10 @@ class MainActivity : Activity() {
     private val connectIQService = ConnectIQService.getInstance()
     private var devices: List<IQDevice> = emptyList()
 
+    private fun ts(): String = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Log.d(TAG, "[MAIN] onCreate")
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -69,20 +67,20 @@ class MainActivity : Activity() {
 
         setContentView(root)
 
-        connectIQService.registerLogSink { appendLog(it) }
+        // GUI-only logging
+        connectIQService.registerLogSink { line -> appendLog(line) }
 
         if (!hasRequiredPermissions()) {
             requestRequiredPermissions()
         } else {
-            appendLog("[MAIN] Permissions OK")
+            appendLog("[${ts()}] Permissions OK")
         }
 
-        // Initialize runs off-UI, but reloadDevices is posted to UI thread
         initBtn.setOnClickListener {
             Thread {
-                appendLog("[MAIN] Initializing CIQ (UI)")
+                appendLog("[${ts()}] Initializing CIQ (UI)")
                 val ok = initWithUi()
-                appendLog("[MAIN] Initialized=$ok")
+                appendLog("[${ts()}] Initialized=$ok")
                 if (ok) handler.post { reloadDevices() }
             }.start()
         }
@@ -91,15 +89,15 @@ class MainActivity : Activity() {
 
         queryBtn.setOnClickListener {
             Thread {
-                appendLog("[MAIN] Query start")
+                appendLog("[${ts()}] Query start")
                 val selected = devices.getOrNull(devicesSpinner.selectedItemPosition)
                 val res = connectIQService.queryActivityStatus(
                     context = this,
                     selected = selected,
                     showUiIfInitNeeded = true
                 )
-                appendLog("[QUERY] success=${res.success} payload='${res.payload}'")
-                appendLog("[QUERY] debug:\n${res.debug.trim()}")
+                appendLog("[${ts()}] [QUERY-RESULT] success=${res.success} payload='${res.payload}'")
+                appendLog("[${ts()}] [QUERY-DEBUG]\n${res.debug.trim()}")
             }.start()
         }
 
@@ -109,12 +107,12 @@ class MainActivity : Activity() {
             Toast.makeText(this, "Log copied", Toast.LENGTH_SHORT).show()
         }
 
-        clearBtn.setOnClickListener { logView.text = "" }
+        clearBtn.setOnClickListener {
+            handler.post { logView.text = "" }
+        }
 
-        appendLog("Activity Status Companion ready")
-        appendLog("App UUID: 7b408c6e-fc9c-4080-bad4-97a3557fc995")
-
-        // No auto-init on main to avoid main-thread blocking
+        appendLog("[${ts()}] Activity Status Companion ready")
+        appendLog("[${ts()}] App UUID: 7b408c6e-fc9c-4080-bad4-97a3557fc995")
     }
 
     private fun initWithUi(): Boolean {
@@ -122,12 +120,11 @@ class MainActivity : Activity() {
             connectIQService.queryActivityStatus(this, null, true)
             true
         } catch (e: Exception) {
-            appendLog("[MAIN] init failed: ${e.message}")
+            appendLog("[${ts()}] init failed: ${e.message}")
             false
         }
     }
 
-    // Safe reload: fetch on worker, update UI on main
     private fun reloadDevices() {
         Thread {
             val ds = connectIQService.getConnectedRealDevices(this)
@@ -139,21 +136,19 @@ class MainActivity : Activity() {
                 }
                 devicesSpinner.adapter = adapter
                 if (devices.isEmpty()) {
-                    appendLog("[MAIN] No connected devices detected")
+                    appendLog("[${ts()}] No connected devices detected")
                 } else {
-                    appendLog("[MAIN] Devices: ${labels.joinToString()}")
+                    appendLog("[${ts()}] Devices: ${labels.joinToString()}")
                 }
             }
         }.start()
     }
 
     private fun appendLog(line: String) {
-        val ts = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
         handler.post {
-            logView.append("[$ts] $line\n")
+            logView.append("$line\n")
             scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
         }
-        Log.d(TAG, line)
     }
 
     private fun hasRequiredPermissions(): Boolean {
@@ -173,16 +168,16 @@ class MainActivity : Activity() {
             perms.add(Manifest.permission.BLUETOOTH_SCAN)
             perms.add(Manifest.permission.BLUETOOTH_CONNECT)
         }
-        ActivityCompat.requestPermissions(this, perms.toTypedArray(), PERMISSION_REQUEST_CODE)
+        ActivityCompat.requestPermissions(this, perms.toTypedArray(), 100)
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == PERMISSION_REQUEST_CODE) {
+        if (requestCode == 100) {
             if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                appendLog("[MAIN] Permissions granted")
+                appendLog("[${ts()}] Permissions granted")
             } else {
-                appendLog("[MAIN] Permissions denied")
+                appendLog("[${ts()}] Permissions denied")
                 Toast.makeText(this, "Location/Bluetooth permission required", Toast.LENGTH_LONG).show()
             }
         }

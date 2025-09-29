@@ -71,17 +71,61 @@ class ConnectIQService private constructor() {
 
     @Synchronized
     private fun ensureInitialized(context: Context, showUi: Boolean): Boolean {
+        // Already initialized
         if (initialized.get()) {
             log("[INIT] Already initialized")
             return true
         }
+
+        // If called on main thread, never block; start async init and return false
+        val onMain = Looper.myLooper() == Looper.getMainLooper()
+        if (onMain) {
+            if (initInProgress.get()) {
+                log("[INIT] Init requested on main; already in progress (non-blocking)")
+                return false
+            }
+            initInProgress.set(true)
+            appContext = context.applicationContext
+            val ciq = ConnectIQ.getInstance(appContext, ConnectIQ.IQConnectType.WIRELESS)
+            log("[INIT] (main) getInstance(WIRELESS) -> $ciq")
+            connectIQ = ciq
+            // Initialize directly on main (no await)
+            try {
+                ciq.initialize(appContext, showUi, object : ConnectIQListener {
+                    override fun onSdkReady() {
+                        log("[INIT] (main) onSdkReady")
+                        initialized.set(true)
+                        initInProgress.set(false)
+                        refreshAndRegisterDevices()
+                    }
+                    override fun onInitializeError(status: ConnectIQ.IQSdkErrorStatus) {
+                        log("[INIT] (main) onInitializeError=$status")
+                        initialized.set(false)
+                        initInProgress.set(false)
+                    }
+                    override fun onSdkShutDown() {
+                        log("[INIT] (main) onSdkShutDown")
+                        initialized.set(false)
+                    }
+                })
+            } catch (e: Exception) {
+                log("[INIT] (main) initialize threw: ${e.message}")
+                initInProgress.set(false)
+            }
+            // Non-blocking on main; signal "not yet ready"
+            return false
+        }
+
+        // Background thread path: safe to block briefly
         if (initInProgress.get()) {
+            // Wait briefly for another thread to finish initialization
             repeat(40) {
                 if (initialized.get()) return true
                 Thread.sleep(100)
             }
             return initialized.get()
         }
+
         initInProgress.set(true)
         try {
             appContext = context.applicationContext
@@ -91,6 +135,8 @@ class ConnectIQService private constructor() {
 
             val latch = CountDownLatch(1)
             val ok = AtomicBoolean(false)
+
+            // Init must run on main; post, then await here (background)
             mainHandler.post {
                 try {
                     ciq.initialize(appContext, showUi, object : ConnectIQListener {
@@ -112,6 +158,7 @@ class ConnectIQService private constructor() {
                     ok.set(false); latch.countDown()
                 }
             }
+
             latch.await(8, TimeUnit.SECONDS)
             if (!ok.get()) {
                 log("[INIT] Initialization failed")
@@ -183,6 +230,7 @@ class ConnectIQService private constructor() {
             return QueryResult(false, "", "[ERROR] Missing required permissions", 0)
         }
         if (!ensureInitialized(ctx, showUiIfInitNeeded)) {
+            // If initialization is still in progress (or just scheduled on main), report clearly
             return QueryResult(false, "", "[ERROR] ConnectIQ not initialized", 0)
         }
         val ciq = connectIQ!!
@@ -241,7 +289,6 @@ class ConnectIQService private constructor() {
         }
 
         val outbound: List<Any> = listOf("status?")
-
         fun sendOnce(): IQMessageStatus? {
             var local: IQMessageStatus? = null
             try {

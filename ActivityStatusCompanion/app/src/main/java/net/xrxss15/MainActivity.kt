@@ -77,6 +77,7 @@ class MainActivity : Activity() {
             appendLog("[MAIN] Permissions OK")
         }
 
+        // Run initialization off the UI thread to avoid deadlocks
         initBtn.setOnClickListener {
             Thread {
                 appendLog("[MAIN] Initializing CIQ (UI)")
@@ -112,10 +113,13 @@ class MainActivity : Activity() {
 
         appendLog("Activity Status Companion ready")
         appendLog("App UUID: 7b408c6e-fc9c-4080-bad4-97a3557fc995")
+
+        // Removed the previous auto-init via handler.post to prevent main-thread blocking
     }
 
     private fun initWithUi(): Boolean {
         return try {
+            // This runs on a background thread; ensureInitialized will block safely there
             connectIQService.queryActivityStatus(this, null, true)
             true
         } catch (e: Exception) {

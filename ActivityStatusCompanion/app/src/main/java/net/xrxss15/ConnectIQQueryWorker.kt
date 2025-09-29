@@ -18,8 +18,8 @@ class ConnectIQQueryWorker(appContext: Context, params: WorkerParameters) : Work
             showUiIfInitNeeded = false
         )
 
-        val names = svc.getConnectedRealDevices(ctx).joinToString(", ") { it.friendlyName ?: "Unnamed" }
-        svc.log("[WORKER] Devices found: $names")
+        val names = svc.getConnectedRealDevices().joinToString(", ") { it.friendlyName ?: "Unnamed" }
+        svc.log("[${java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US).format(java.util.Date())}] [WORKER] Devices found: $names")
 
         val out = Intent(ActivityStatusCheckReceiver.ACTION_RESULT).apply {
             putExtra(ActivityStatusCheckReceiver.EXTRA_SUCCESS, res.success)

@@ -39,20 +39,25 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 24, 24, 24)
         }
+
         val header = TextView(this).apply {
             text = "Activity Status Companion (BLE)"
             textSize = 20f
         }
         root.addView(header)
 
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val row1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         initBtn = Button(this).apply { text = "Initialize" }
         refreshBtn = Button(this).apply { text = "Refresh Devices" }
         queryBtn = Button(this).apply { text = "Query Status" }
+        row1.addView(initBtn); row1.addView(refreshBtn); row1.addView(queryBtn)
+        root.addView(row1)
+
+        val row2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         copyBtn = Button(this).apply { text = "Copy Log" }
         clearBtn = Button(this).apply { text = "Clear Log" }
-        row.addView(initBtn); row.addView(refreshBtn); row.addView(queryBtn); row.addView(copyBtn); row.addView(clearBtn)
-        root.addView(row)
+        row2.addView(copyBtn); row2.addView(clearBtn)
+        root.addView(row2)
 
         devicesSpinner = Spinner(this)
         root.addView(devicesSpinner)
@@ -67,13 +72,12 @@ class MainActivity : Activity() {
 
         setContentView(root)
 
-        // GUI-only logging
         connectIQService.registerLogSink { line -> appendLog(line) }
 
         if (!hasRequiredPermissions()) {
             requestRequiredPermissions()
         } else {
-            appendLog("[${ts()}] Permissions OK")
+            appendLog("[${ts()}] Permissions granted")
         }
 
         initBtn.setOnClickListener {
@@ -127,7 +131,7 @@ class MainActivity : Activity() {
 
     private fun reloadDevices() {
         Thread {
-            val ds = connectIQService.getConnectedRealDevices(this)
+            val ds = connectIQService.getConnectedRealDevices()
             val labels = ds.map { "${it.friendlyName} (${it.deviceIdentifier})" }
             handler.post {
                 devices = ds

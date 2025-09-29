@@ -25,9 +25,9 @@ class ConnectIQService private constructor() {
         private const val APP_UUID = "7b408c6e-fc9c-4080-bad4-97a3557fc995"
 
         private const val RESPONSE_TIMEOUT_MS = 15_000L
-        private const val SEND_RETRY_DELAY_MS = 1_200L
-        private const val DISCOVERY_DELAY_MS  = 500L
-        private const val KNOWN_SIMULATOR_ID  = 12345L
+        private const val SEND_STATUS_WAIT_MS  = 800L
+        private const val DISCOVERY_DELAY_MS   = 500L
+        private const val KNOWN_SIMULATOR_ID   = 12345L
 
         @Volatile private var INSTANCE: ConnectIQService? = null
         fun getInstance(): ConnectIQService =
@@ -54,9 +54,9 @@ class ConnectIQService private constructor() {
     private val appListeners = mutableMapOf<String, IQApplicationEventListener>()
 
     @Volatile private var logSink: ((String) -> Unit)? = null
-    fun registerLogSink(sink: ((String) -> Unit)?) { logSink = sink }  // GUI only [attached_file:3]
-    private fun ts(): String = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())  // [attached_file:3]
-    fun log(message: String) { logSink?.invoke(message) }  // no Logcat for efficiency [attached_file:3]
+    fun registerLogSink(sink: ((String) -> Unit)?) { logSink = sink } // GUI-only [attached_file:3]
+    private fun ts(): String = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date()) // [attached_file:3]
+    fun log(message: String) { logSink?.invoke(message) } // public for Worker use [attached_file:3]
 
     fun hasRequiredPermissions(ctx: Context): Boolean {
         val needs = mutableListOf(android.Manifest.permission.ACCESS_FINE_LOCATION)
@@ -77,7 +77,6 @@ class ConnectIQService private constructor() {
             log("[${ts()}] [INIT] Already initialized")
             return true
         }
-
         val onMain = Looper.myLooper() == Looper.getMainLooper()
         if (onMain) {
             if (initInProgress.get()) {
@@ -131,7 +130,6 @@ class ConnectIQService private constructor() {
 
             val latch = CountDownLatch(1)
             val ok = AtomicBoolean(false)
-
             mainHandler.post {
                 try {
                     ciq.initialize(appContext, showUi, object : ConnectIQListener {
@@ -153,7 +151,6 @@ class ConnectIQService private constructor() {
                     ok.set(false); latch.countDown()
                 }
             }
-
             latch.await(8, TimeUnit.SECONDS)
             if (!ok.get()) {
                 log("[${ts()}] [INIT] Initialization failed")
@@ -167,7 +164,7 @@ class ConnectIQService private constructor() {
         }
     }
 
-    fun getConnectedRealDevices(context: Context): List<IQDevice> {
+    fun getConnectedRealDevices(): List<IQDevice> {
         val ciq = connectIQ ?: return emptyList()
         val connected = try { ciq.connectedDevices } catch (e: Exception) {
             log("[${ts()}] [DEVICES] connectedDevices threw: ${e.message}")
@@ -227,17 +224,15 @@ class ConnectIQService private constructor() {
             return QueryResult(false, "", "[ERROR] ConnectIQ not initialized", 0)
         }
         val ciq = connectIQ!!
-
         refreshAndRegisterDevices()
 
-        val devices = getConnectedRealDevices(ctx)
+        val devices = getConnectedRealDevices()
         val target = selected ?: devices.firstOrNull()
         if (target == null) {
             return QueryResult(false, "", "[ERROR] No connected real device found", 0)
         }
         log("[${ts()}] [QUERY] Target device: ${target.friendlyName} (${target.deviceIdentifier})")
 
-        // App install check
         val installed = AtomicBoolean(false)
         val infoLatch = CountDownLatch(1)
         try {
@@ -266,7 +261,6 @@ class ConnectIQService private constructor() {
         val got = AtomicBoolean(false)
         val latch = CountDownLatch(1)
 
-        // Fresh per-operation listener (SDK replaces older one)
         val appListener = IQApplicationEventListener { device, iqApp, messages, status ->
             val rxTime = ts()
             val payload = if (messages.isNullOrEmpty()) "<empty>" else messages.joinToString("|") { it.toString() }
@@ -284,33 +278,32 @@ class ConnectIQService private constructor() {
             log("[${ts()}] [APP] registerForAppEvents failed: ${e.message}")
         }
 
-        // Send message
-        val outbound: List<Any> = listOf("status?")
-        fun sendOnce(): IQMessageStatus? {
-            var local: IQMessageStatus? = null
+        fun sendOnceAwait(): IQMessageStatus? {
+            val result = arrayOfNulls<IQMessageStatus>(1)
+            val sLatch = CountDownLatch(1)
             val txTime = ts()
-            log("[$txTime] [TX] -> dev=${target.friendlyName} id=${target.deviceIdentifier} app=$APP_UUID payload=${outbound.joinToString("|")}")
+            log("[$txTime] [TX] -> dev=${target.friendlyName} id=${target.deviceIdentifier} app=$APP_UUID payload=status?")
             try {
-                ciq.sendMessage(target, app, outbound, object : ConnectIQ.IQSendMessageListener {
+                ciq.sendMessage(target, app, listOf("status?"), object : ConnectIQ.IQSendMessageListener {
                     override fun onMessageStatus(device: IQDevice, iqApp: IQApp, status: IQMessageStatus) {
+                        result[0] = status
                         log("[${ts()}] [TX-ACK] dev=${device.friendlyName} id=${device.deviceIdentifier} app=${iqApp.applicationId} status=$status")
-                        local = status
+                        sLatch.countDown()
                     }
                 })
             } catch (e: Exception) {
                 log("[${ts()}] [SEND] Exception: ${e.message}")
+                sLatch.countDown()
             }
-            try { Thread.sleep(120) } catch (_: InterruptedException) {}
-            return local
+            sLatch.await(SEND_STATUS_WAIT_MS, TimeUnit.MILLISECONDS)
+            return result[0]
         }
 
-        var sendStatus = sendOnce()
-        if (sendStatus != IQMessageStatus.SUCCESS) {
-            try { Thread.sleep(SEND_RETRY_DELAY_MS) } catch (_: InterruptedException) {}
-            sendStatus = sendOnce()
+        var sendStatus = sendOnceAwait()
+        if (sendStatus == null) {
+            sendStatus = sendOnceAwait()
         }
 
-        // Await response
         latch.await(RESPONSE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
 
         val debug = buildString {

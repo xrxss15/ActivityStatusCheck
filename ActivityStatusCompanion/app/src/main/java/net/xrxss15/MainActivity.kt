@@ -24,7 +24,7 @@ import java.util.Locale
  * Features:
  * - Manual ConnectIQ initialization
  * - Device discovery and refresh
- * - Manual status queries
+ * - Manual status queries with response monitoring
  * - Real-time log display with copy/clear
  * 
  * Note: When app is triggered via Tasker intent, MainActivity is NOT launched.
@@ -68,8 +68,9 @@ class MainActivity : Activity() {
      * This method:
      * 1. Creates UI layout programmatically
      * 2. Registers log sink for service logging
-     * 3. Checks and requests permissions
-     * 4. Sets up button click listeners
+     * 3. Registers response callback to display CIQ responses
+     * 4. Checks and requests permissions
+     * 5. Sets up button click listeners
      */
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -132,6 +133,23 @@ class MainActivity : Activity() {
 
         // Register log sink to display service logs in UI
         connectIQService.registerLogSink { line -> appendLog(line) }
+        
+        // Register response callback to display CIQ app responses in real-time
+        connectIQService.setResponseCallback { response, deviceName, timestamp ->
+            appendLog("═══════════════════════════════════════")
+            appendLog("[$timestamp] 📱 CIQ RESPONSE RECEIVED")
+            appendLog("Device: $deviceName")
+            appendLog("Response: $response")
+            
+            // Parse response if in expected format
+            val parts = response.split("|")
+            if (parts.size >= 3) {
+                appendLog("  Status: ${parts[0]}")
+                appendLog("  Time: ${parts[1]}")
+                appendLog("  Count: ${parts[2]}")
+            }
+            appendLog("═══════════════════════════════════════")
+        }
 
         // Check permissions
         if (!hasRequiredPermissions()) {
@@ -141,30 +159,35 @@ class MainActivity : Activity() {
         // Button click listeners
         initBtn.setOnClickListener {
             Thread {
-                appendLog("[${ts()}] Manual initialization started...")
+                appendLog("[${ts()}] Initializing ConnectIQ SDK...")
                 val ok = connectIQService.initializeForWorker(this@MainActivity)
-                appendLog("[${ts()}] Manual initialization: ${if (ok) "✅ SUCCESS" else "❌ FAILED"}")
+                appendLog("[${ts()}] Initialization: ${if (ok) "✅ SUCCESS" else "❌ FAILED"}")
                 if (ok) handler.post { reloadDevices() }
             }.start()
         }
 
         refreshBtn.setOnClickListener { 
-            appendLog("[${ts()}] Refreshing device list...")
+            appendLog("[${ts()}] Scanning for devices...")
             reloadDevices() 
         }
 
         queryBtn.setOnClickListener {
             Thread {
                 val selected = devices.getOrNull(devicesSpinner.selectedItemPosition)
-                val deviceName = selected?.friendlyName ?: "auto-select"
-                appendLog("[${ts()}] Querying device: $deviceName")
+                val deviceName = selected?.friendlyName ?: "first available"
+                appendLog("[${ts()}] ═══════════════════════════════════════")
+                appendLog("[${ts()}] Sending query to: $deviceName")
                 
                 val res = connectIQService.queryActivityStatus(this@MainActivity, selected, true)
-                appendLog("[${ts()}] Query result: ${if (res.success) "✅ SUCCESS" else "❌ FAILED"}")
-                appendLog("[${ts()}] Payload: ${res.payload}")
-                if (res.debug.isNotEmpty()) {
-                    appendLog("[${ts()}] Debug:\n${res.debug}")
+                
+                if (res.success) {
+                    appendLog("[${ts()}] ✅ Query message sent successfully")
+                    appendLog("[${ts()}] ⏳ Waiting for CIQ app response...")
+                    appendLog("[${ts()}] (Response will appear above when received)")
+                } else {
+                    appendLog("[${ts()}] ❌ Query failed: ${res.payload}")
                 }
+                appendLog("[${ts()}] ═══════════════════════════════════════")
             }.start()
         }
 
@@ -172,7 +195,6 @@ class MainActivity : Activity() {
             val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
             cm.setPrimaryClip(android.content.ClipData.newPlainText("ActStatus log", logView.text))
             Toast.makeText(this, "Log copied to clipboard", Toast.LENGTH_SHORT).show()
-            appendLog("[${ts()}] Log copied to clipboard")
         }
 
         clearBtn.setOnClickListener { 
@@ -255,7 +277,7 @@ class MainActivity : Activity() {
             perms.add(Manifest.permission.BLUETOOTH_CONNECT)
         }
         ActivityCompat.requestPermissions(this, perms.toTypedArray(), 100)
-        appendLog("[${ts()}] Requesting permissions: ${perms.joinToString(", ")}")
+        appendLog("[${ts()}] Requesting permissions...")
     }
 
     /**

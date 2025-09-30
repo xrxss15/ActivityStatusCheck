@@ -178,6 +178,15 @@ class ConnectIQService private constructor() {
         log(logMsg)
         android.util.Log.e("ConnectIQService", logMsg)
     }
+    
+    /**
+     * Logs warning message with category.
+     */
+    private fun logWarning(category: String, message: String) {
+        val logMsg = "[${ts()}] ⚠️ [SERVICE.$category] $message"
+        log(logMsg)
+        android.util.Log.w("ConnectIQService", logMsg)
+    }
 
     /**
      * Checks if all required permissions are granted.
@@ -371,7 +380,7 @@ class ConnectIQService private constructor() {
      * 1. Validates initialization and permissions
      * 2. Selects target device
      * 3. Verifies CIQ app is installed
-     * 4. Registers response listener
+     * 4. Registers response listener with DETAILED DEBUG LOGGING
      * 5. Sends query message
      * 
      * Note: This method does NOT wait for the response. Response arrives
@@ -405,81 +414,156 @@ class ConnectIQService private constructor() {
             return QueryResult(false, "No device", "[ERROR] No connected real device found", 0)
         }
 
+        logInfo("QUERY", "═══════════════════════════════════════")
+        logInfo("QUERY", "Starting query to ${target.friendlyName}")
+        logInfo("QUERY", "Device ID: ${target.deviceIdentifier}")
+        logInfo("QUERY", "Device Status: ${target.status}")
+        logInfo("QUERY", "═══════════════════════════════════════")
+
         // Check if CIQ app is installed (3 second timeout)
         val installed = AtomicBoolean(false)
         val infoLatch = CountDownLatch(1)
 
+        logInfo("APP_CHECK", "Checking if CIQ app is installed...")
+        logInfo("APP_CHECK", "App UUID: $APP_UUID")
+
         try {
             ciq.getApplicationInfo(APP_UUID, target, object : ConnectIQ.IQApplicationInfoListener {
                 override fun onApplicationInfoReceived(app: IQApp) {
+                    logSuccess("APP_CHECK", "CIQ app FOUND on device")
+                    logInfo("APP_CHECK", "App ID: ${app.applicationId}")
+                    logInfo("APP_CHECK", "App Display Name: ${app.displayName}")
+                    logInfo("APP_CHECK", "App Version: ${app.version()}")
                     installed.set(true)
                     infoLatch.countDown()
                 }
 
                 override fun onApplicationNotInstalled(applicationId: String) {
+                    logError("APP_CHECK", "CIQ app NOT INSTALLED")
+                    logError("APP_CHECK", "Missing app ID: $applicationId")
                     installed.set(false)
                     infoLatch.countDown()
                 }
             })
         } catch (e: Exception) {
+            logError("APP_CHECK", "Exception checking app: ${e.message}")
             installed.set(false)
             infoLatch.countDown()
         }
 
-        if (!infoLatch.await(3, TimeUnit.SECONDS) || !installed.get()) {
-            return QueryResult(false, "App not installed", "[ERROR] CIQ app not found or check timeout", devices.size)
+        if (!infoLatch.await(3, TimeUnit.SECONDS)) {
+            logError("APP_CHECK", "App installation check TIMEOUT")
+            return QueryResult(false, "App check timeout", "[ERROR] CIQ app check timeout", devices.size)
+        }
+        
+        if (!installed.get()) {
+            logError("APP_CHECK", "CIQ app not found or unavailable")
+            return QueryResult(false, "App not installed", "[ERROR] CIQ app not found", devices.size)
         }
 
         val app = IQApp(APP_UUID)
         val appKey = "${target.deviceIdentifier}:$APP_UUID"
 
-        // Register for immediate response callback
-        // Parameters iqApp and status are intentionally unused - we only need device and messages
+        // Register for immediate response callback with COMPREHENSIVE DEBUGGING
+        logInfo("LISTENER", "Registering app event listener...")
+        logInfo("LISTENER", "Listener key: $appKey")
+        
         val appListener = IQApplicationEventListener { device, _, messages, _ ->
             val rxTime = ts()
-            val payload = if (messages.isNullOrEmpty()) "" else messages.joinToString("|") { it.toString() }
             
-            // Immediately forward response via callback (no timeout handling here)
-            if (!messages.isNullOrEmpty()) {
-                responseCallback?.invoke(payload, device.friendlyName ?: "Unknown", rxTime)
+            logSuccess("RESPONSE", "═══════════════════════════════════════")
+            logSuccess("RESPONSE", "🎉 CIQ APP RESPONSE RECEIVED!")
+            logInfo("RESPONSE", "From device: ${device.friendlyName} (${device.deviceIdentifier})")
+            logInfo("RESPONSE", "Receive time: $rxTime")
+            logInfo("RESPONSE", "Message count: ${messages?.size ?: 0}")
+            
+            if (messages.isNullOrEmpty()) {
+                logWarning("RESPONSE", "Messages list is EMPTY or NULL")
+                logWarning("RESPONSE", "This is unexpected - CIQ app should send data")
+            } else {
+                logInfo("RESPONSE", "Processing ${messages.size} message(s)...")
+                messages.forEachIndexed { index, msg ->
+                    logInfo("RESPONSE", "  Message $index: $msg (type: ${msg?.javaClass?.simpleName})")
+                }
+                
+                val payload = messages.joinToString("|") { it.toString() }
+                logSuccess("RESPONSE", "Combined payload: '$payload'")
+                
+                // Immediately forward response via callback
+                responseCallback?.let { callback ->
+                    logInfo("RESPONSE", "Invoking response callback...")
+                    callback(payload, device.friendlyName ?: "Unknown", rxTime)
+                    logSuccess("RESPONSE", "Response callback completed")
+                } ?: logWarning("RESPONSE", "No response callback registered!")
             }
+            logSuccess("RESPONSE", "═══════════════════════════════════════")
         }
 
         try {
             ciq.registerForAppEvents(target, app, appListener)
             appListeners[appKey] = appListener
+            logSuccess("LISTENER", "App event listener registered successfully")
         } catch (e: Exception) {
+            logError("LISTENER", "Failed to register listener: ${e.message}")
             return QueryResult(false, "Listener error", "[ERROR] Failed to register app listener", devices.size)
         }
 
-        // Send query message (with 5 second timeout for send confirmation only)
+        // Send query message
+        logInfo("MESSAGE", "═══════════════════════════════════════")
+        logInfo("MESSAGE", "Preparing to send message to CIQ app...")
+        logInfo("MESSAGE", "Target device: ${target.friendlyName}")
+        logInfo("MESSAGE", "Device status: ${target.status}")
+        logInfo("MESSAGE", "Message payload: ['status?']")
+        logInfo("MESSAGE", "═══════════════════════════════════════")
+        
         try {
             val messageSent = AtomicBoolean(false)
             val sendLatch = CountDownLatch(1)
             
             ciq.sendMessage(target, app, listOf("status?"), object : ConnectIQ.IQSendMessageListener {
                 override fun onMessageStatus(device: IQDevice, iqApp: IQApp, status: IQMessageStatus) {
-                    messageSent.set(status == IQMessageStatus.SUCCESS)
+                    val success = status == IQMessageStatus.SUCCESS
+                    messageSent.set(success)
+                    
+                    if (success) {
+                        logSuccess("MESSAGE", "✅ Message SEND CONFIRMED by ConnectIQ SDK")
+                        logInfo("MESSAGE", "Message successfully transmitted to ${device.friendlyName}")
+                        logInfo("MESSAGE", "Now waiting for CIQ app to respond...")
+                    } else {
+                        logError("MESSAGE", "❌ Message send FAILED")
+                        logError("MESSAGE", "Status: $status")
+                        logError("MESSAGE", "Device: ${device.friendlyName}")
+                    }
+                    
                     sendLatch.countDown()
                 }
             })
             
-            // Wait for send confirmation (NOT response - that comes via callback)
-            if (sendLatch.await(5, TimeUnit.SECONDS) && messageSent.get()) {
-                val debug = buildString {
-                    appendLine("target_device=${target.friendlyName} (${target.deviceIdentifier})")
-                    appendLine("app_uuid=$APP_UUID")
-                    appendLine("total_connected_devices=${devices.size}")
-                    appendLine("message_sent=true")
-                    appendLine("awaiting_response_via_callback=true")
-                }
-                
-                return QueryResult(true, "Message sent successfully", debug, devices.size)
-            } else {
+            logInfo("MESSAGE", "Message send initiated - waiting for confirmation...")
+            
+            // Wait for send confirmation
+            if (!sendLatch.await(5, TimeUnit.SECONDS)) {
+                logError("MESSAGE", "Send confirmation TIMEOUT after 5 seconds")
+                logError("MESSAGE", "SDK did not confirm message delivery")
+                return QueryResult(false, "Send timeout", "[ERROR] Message send confirmation timeout", devices.size)
+            }
+            
+            if (!messageSent.get()) {
+                logError("MESSAGE", "Message send was NOT successful")
                 return QueryResult(false, "Send failed", "[ERROR] Failed to send message to CIQ app", devices.size)
             }
             
+            logSuccess("MESSAGE", "═══════════════════════════════════════")
+            logSuccess("MESSAGE", "Message sent successfully!")
+            logInfo("MESSAGE", "Listener is active and waiting for response")
+            logInfo("MESSAGE", "Response will arrive via registered callback")
+            logSuccess("MESSAGE", "═══════════════════════════════════════")
+            
+            return QueryResult(true, "Query sent - awaiting response", "", devices.size)
+            
         } catch (e: Exception) {
+            logError("MESSAGE", "Exception sending message: ${e.message}")
+            logError("MESSAGE", "Stack trace: ${e.stackTraceToString()}")
             return QueryResult(false, "Send exception", "[ERROR] Exception: ${e.message}", devices.size)
         }
     }

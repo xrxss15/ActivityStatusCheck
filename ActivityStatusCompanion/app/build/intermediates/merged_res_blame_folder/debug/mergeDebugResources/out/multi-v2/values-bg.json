@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "net.xrxss15.app-mergeDebugResources-38:/values-bg/values-bg.xml",
+            "outputFile": "net.xrxss15.app-mergeDebugResources-36:/values-bg/values-bg.xml",
             "map": [
                 {
                     "source": "/home/vscode/.gradle/caches/8.10.2/transforms/e82a9e8137b993b9644381fc44eec3b0/transformed/core-1.13.1/res/values-bg/values-bg.xml",

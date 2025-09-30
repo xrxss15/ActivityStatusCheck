@@ -33,33 +33,19 @@ android {
     kotlinOptions { 
         jvmTarget = '17' 
     }
-
-    // Resolution strategy to fix WorkManager conflicts
-    configurations.all {
-        resolutionStrategy {
-            force 'androidx.work:work-runtime:2.9.0'
-            force 'androidx.work:work-runtime-ktx:2.9.0'
-        }
-    }
 }
 
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.24"
 
-    // Garmin Connect IQ Mobile SDK - Updated to latest version
-    implementation "com.garmin.connectiq:ciq-companion-app-sdk:2.3.0@aar"
+    // Updated ConnectIQ SDK - use version that works with Android 14+
+    implementation "com.garmin.connectiq:ciq-companion-app-sdk:2.0.3@aar"
 
-    // AndroidX WorkManager with explicit version control
+    // AndroidX WorkManager
     implementation "androidx.work:work-runtime-ktx:2.9.0"
     
-    // AndroidX basics - Updated versions for better compatibility
+    // AndroidX basics
     implementation "androidx.core:core-ktx:1.13.1"
     implementation "androidx.appcompat:appcompat:1.7.0"
     implementation "com.google.android.material:material:1.12.0"
-
-    // Lifecycle for WorkManager observation (optional but recommended)
-    implementation "androidx.lifecycle:lifecycle-livedata-ktx:2.8.6"
-    
-    // Startup runtime for WorkManager initialization (resolves provider conflicts)
-    implementation "androidx.startup:startup-runtime:1.1.1"
 }

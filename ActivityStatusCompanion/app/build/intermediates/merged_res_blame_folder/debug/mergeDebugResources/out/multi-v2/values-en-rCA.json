@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "net.xrxss15.app-mergeDebugResources-36:/values-en-rCA/values-en-rCA.xml",
+            "outputFile": "net.xrxss15.app-mergeDebugResources-38:/values-en-rCA/values-en-rCA.xml",
             "map": [
                 {
                     "source": "/home/vscode/.gradle/caches/8.10.2/transforms/eb8d7487fbc44a1bce3ada75994e91e5/transformed/appcompat-1.7.0/res/values-en-rCA/values-en-rCA.xml",

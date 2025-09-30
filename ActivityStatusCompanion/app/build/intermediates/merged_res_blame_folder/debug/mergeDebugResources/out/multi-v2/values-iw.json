@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "net.xrxss15.app-mergeDebugResources-36:/values-iw/values-iw.xml",
+            "outputFile": "net.xrxss15.app-mergeDebugResources-38:/values-iw/values-iw.xml",
             "map": [
                 {
                     "source": "/home/vscode/.gradle/caches/8.10.2/transforms/1cc9de2d4f54dbf857b69cc9781d9594/transformed/material-1.12.0/res/values-iw/values-iw.xml",

@@ -520,7 +520,7 @@ class ConnectIQService private constructor() {
             val messageSent = AtomicBoolean(false)
             val sendLatch = CountDownLatch(1)
             
-            ciq.sendMessage(target, app, listOf("status?"), object : ConnectIQ.IQSendMessageListener {
+            ciq.sendMessage(target, app, "status?", object : ConnectIQ.IQSendMessageListener {
                 override fun onMessageStatus(device: IQDevice, iqApp: IQApp, status: IQMessageStatus) {
                     val success = status == IQMessageStatus.SUCCESS
                     messageSent.set(success)

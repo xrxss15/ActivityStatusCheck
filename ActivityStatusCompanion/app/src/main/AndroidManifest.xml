@@ -20,6 +20,7 @@
     
     <!-- Background work permissions -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <application
         android:allowBackup="true"
@@ -27,7 +28,7 @@
         android:label="Activity Status Companion"
         android:theme="@android:style/Theme.Material.Light">
 
-        <!-- Main Activity -->
+        <!-- Main Activity - Debug Mode Only -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -38,7 +39,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Tasker Integration Broadcast Receiver -->
+        <!-- Tasker Integration Broadcast Receiver - Headless Mode Trigger -->
         <receiver
             android:name=".ActivityStatusCheckReceiver"
             android:exported="true">

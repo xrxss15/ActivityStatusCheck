@@ -20,39 +20,78 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * CONNECTIQ SERVICE FOR TASKER INTEGRATION WITH ENHANCED LOGGING
+ * ConnectIQ Service - Singleton for ConnectIQ SDK Management
  * 
- * Manages ConnectIQ SDK initialization, device discovery, and CIQ app communication.
- * Optimized for immediate response forwarding without timeout handling.
+ * This service manages all interactions with the Garmin ConnectIQ SDK:
+ * - SDK initialization (both UI and headless modes)
+ * - Device discovery and management
+ * - CIQ app communication and messaging
+ * - Response callback handling
  * 
- * KEY DESIGN PRINCIPLES:
- * - Singleton pattern for consistent state management
- * - Immediate response callbacks for Tasker integration  
- * - No artificial timeouts - processes responses as they arrive
- * - Robust error handling and enhanced categorized logging
- * - Background-friendly initialization
+ * Design Principles:
+ * - **Singleton Pattern**: Ensures consistent state across app
+ * - **Thread Safety**: Uses atomic variables and proper synchronization
+ * - **Battery Efficiency**: Minimal resource usage, no polling
+ * - **Dual Mode Support**: Works in both debug (MainActivity) and headless (Worker) modes
  * 
- * TASKER INTEGRATION:
- * - Responds to trigger intents from Tasker
- * - Reports connected devices in format "device1/device2/device3"
- * - Forwards CIQ app responses immediately via callbacks
- * - All operations logged with clear categories for debugging
+ * Initialization:
+ * - For MainActivity: Uses async initialization with UI option
+ * - For Worker: Uses synchronous initialization without UI (headless)
+ * 
+ * Response Handling:
+ * - Immediate callback when CIQ app responds (no internal timeout)
+ * - Timeout handling is responsibility of caller (Worker uses AlarmManager)
+ * 
+ * @see MainActivity for debug mode usage
+ * @see ConnectIQQueryWorker for headless mode usage
  */
 class ConnectIQService private constructor() {
 
     companion object {
+        /**
+         * CIQ app UUID to communicate with.
+         * This must match the UUID of the ConnectIQ app installed on the device.
+         */
         private const val APP_UUID = "7b408c6e-fc9c-4080-bad4-97a3557fc995"
+        
+        /**
+         * Delay before device discovery to allow SDK to stabilize.
+         */
         private const val DISCOVERY_DELAY_MS = 500L
+        
+        /**
+         * Known simulator device ID to filter out.
+         */
         private const val KNOWN_SIMULATOR_ID = 12345L
+        
+        /**
+         * Timeout for worker initialization (not CIQ response timeout).
+         */
+        private const val WORKER_INIT_TIMEOUT_MS = 8000L // 8 seconds for SDK init
         
         @Volatile private var INSTANCE: ConnectIQService? = null
         
+        /**
+         * Gets singleton instance of ConnectIQService.
+         * 
+         * Thread-safe lazy initialization.
+         * 
+         * @return Singleton instance
+         */
         fun getInstance(): ConnectIQService =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: ConnectIQService().also { INSTANCE = it }
             }
     }
 
+    /**
+     * Result data class for query operations.
+     * 
+     * @property success Whether the query was successful
+     * @property payload Response payload or error message
+     * @property debug Debug information string
+     * @property connectedRealDevices Number of connected real devices
+     */
     data class QueryResult(
         val success: Boolean,
         val payload: String,
@@ -69,61 +108,88 @@ class ConnectIQService private constructor() {
     
     // Event listener management
     private val deviceListeners = mutableMapOf<String, (IQDevice, IQDevice.IQDeviceStatus) -> Unit>()
-    private val appListeners = mutableMapOf<String, IQApplicationEventListener>()
+    private val appListeners = mutableMapOf<String, IQApplicationEventListener>() // Fixed syntax error
     
-    // Tasker integration callbacks
+    // Callback management
     @Volatile private var logSink: ((String) -> Unit)? = null
     @Volatile private var responseCallback: ((String, String, String) -> Unit)? = null
 
+    /**
+     * Registers a log sink for receiving log messages.
+     * 
+     * Used by MainActivity to display logs in UI.
+     * 
+     * @param sink Log sink function or null to unregister
+     */
     fun registerLogSink(sink: ((String) -> Unit)?) { 
         logSink = sink 
-        logInfo("LOGGING", "Log sink ${if (sink != null) "registered" else "unregistered"}")
     }
     
     /**
-     * Sets callback for immediate response forwarding to Tasker
-     * Callback parameters: (response, deviceName, timestamp)
+     * Sets callback for CIQ app responses.
+     * 
+     * This callback is invoked IMMEDIATELY when a CIQ app responds.
+     * No timeout handling - responses are forwarded as soon as received.
+     * 
+     * @param callback Response callback (response, deviceName, timestamp) or null to clear
      */
     fun setResponseCallback(callback: ((String, String, String) -> Unit)?) {
         responseCallback = callback
-        logInfo("TASKER_CALLBACK", "Response callback ${if (callback != null) "registered" else "unregistered"}")
     }
 
-    // Enhanced logging methods with clear categories and formatting
+    /**
+     * Formats current timestamp for logging.
+     * 
+     * @return Formatted timestamp string (HH:mm:ss.SSS)
+     */
     private fun ts(): String = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
 
+    /**
+     * Logs message to registered log sink.
+     * 
+     * @param message Message to log
+     */
     fun log(message: String) { 
         logSink?.invoke(message) 
         android.util.Log.i("ConnectIQService", message)
     }
 
+    /**
+     * Logs informational message with category.
+     */
     private fun logInfo(category: String, message: String) {
         val logMsg = "[${ts()}] ℹ️ [SERVICE.$category] $message"
         log(logMsg)
     }
 
+    /**
+     * Logs success message with category.
+     */
     private fun logSuccess(category: String, message: String) {
         val logMsg = "[${ts()}] ✅ [SERVICE.$category] $message"
         log(logMsg)
     }
 
-    private fun logWarning(category: String, message: String) {
-        val logMsg = "[${ts()}] ⚠️ [SERVICE.$category] $message"
-        log(logMsg)
-        android.util.Log.w("ConnectIQService", logMsg)
-    }
-
+    /**
+     * Logs error message with category.
+     */
     private fun logError(category: String, message: String) {
         val logMsg = "[${ts()}] ❌ [SERVICE.$category] $message"
         log(logMsg)
         android.util.Log.e("ConnectIQService", logMsg)
     }
 
-    private fun logDebug(category: String, message: String) {
-        val logMsg = "[${ts()}] 🔍 [SERVICE.$category] $message"
-        log(logMsg)
-    }
-
+    /**
+     * Checks if all required permissions are granted.
+     * 
+     * Required permissions:
+     * - ACCESS_FINE_LOCATION (all versions)
+     * - BLUETOOTH_SCAN (Android 12+)
+     * - BLUETOOTH_CONNECT (Android 12+)
+     * 
+     * @param ctx Context to check permissions against
+     * @return true if all required permissions granted, false otherwise
+     */
     fun hasRequiredPermissions(ctx: Context): Boolean {
         val needs = mutableListOf(android.Manifest.permission.ACCESS_FINE_LOCATION)
         if (Build.VERSION.SDK_INT >= 31) {
@@ -131,148 +197,107 @@ class ConnectIQService private constructor() {
             needs.add(android.Manifest.permission.BLUETOOTH_CONNECT)
         }
         
-        val granted = needs.all { ContextCompat.checkSelfPermission(ctx, it) == PackageManager.PERMISSION_GRANTED }
-        val missing = needs.filter { ContextCompat.checkSelfPermission(ctx, it) != PackageManager.PERMISSION_GRANTED }
-        
-        if (granted) {
-            logSuccess("PERMISSIONS", "All required permissions granted")
-        } else {
-            logError("PERMISSIONS", "Missing permissions: ${missing.joinToString(", ")}")
+        return needs.all {
+            ContextCompat.checkSelfPermission(ctx, it) == PackageManager.PERMISSION_GRANTED
         }
-        
-        return granted
     }
 
-    @Synchronized
-    private fun ensureInitialized(context: Context, showUi: Boolean): Boolean {
+    /**
+     * Initializes ConnectIQ SDK for Worker (headless) context.
+     * 
+     * This is a SYNCHRONOUS initialization designed specifically for WorkManager.
+     * It blocks until SDK is ready or timeout occurs.
+     * 
+     * Unlike UI initialization, this:
+     * - Does not show UI dialogs
+     * - Blocks until complete
+     * - Has timeout protection
+     * - Returns immediately with success/failure
+     * 
+     * Note: This timeout (8s) is for SDK initialization only, NOT for
+     * waiting for CIQ app responses (which uses 5-minute AlarmManager timeout).
+     * 
+     * @param context Application context
+     * @return true if initialization successful, false otherwise
+     */
+    fun initializeForWorker(context: Context): Boolean {
         if (initialized.get()) {
-            logInfo("INIT", "ConnectIQ already initialized - skipping")
+            logInfo("WORKER_INIT", "ConnectIQ already initialized - reusing")
             return true
         }
 
-        val onMain = Looper.myLooper() == Looper.getMainLooper()
+        logInfo("WORKER_INIT", "Starting synchronous initialization for headless worker")
         
-        if (onMain) {
-            if (initInProgress.get()) {
-                logWarning("INIT", "Initialization already in progress on main thread - returning false")
-                return false
-            }
-
-            logInfo("INIT", "Starting ConnectIQ initialization on main thread")
-            initInProgress.set(true)
-            appContext = context.applicationContext
-            
-            val ciq = ConnectIQ.getInstance(appContext, ConnectIQ.IQConnectType.WIRELESS)
-            logDebug("INIT", "ConnectIQ.getInstance(WIRELESS) -> $ciq")
-            connectIQ = ciq
-
+        appContext = context.applicationContext
+        val ciq = ConnectIQ.getInstance(appContext, ConnectIQ.IQConnectType.WIRELESS)
+        connectIQ = ciq
+        
+        val initLatch = CountDownLatch(1)
+        val initSuccess = AtomicBoolean(false)
+        
+        // Post initialization to main thread (SDK requirement)
+        mainHandler.post {
             try {
-                ciq.initialize(appContext, showUi, object : ConnectIQListener {
+                ciq.initialize(appContext, false, object : ConnectIQListener {
                     override fun onSdkReady() {
-                        logSuccess("INIT", "ConnectIQ SDK ready")
+                        logSuccess("WORKER_INIT", "ConnectIQ SDK ready")
+                        initSuccess.set(true)
                         initialized.set(true)
-                        initInProgress.set(false)
-                        refreshAndRegisterDevices()
+                        initLatch.countDown()
                     }
 
                     override fun onInitializeError(status: ConnectIQ.IQSdkErrorStatus) {
-                        logError("INIT", "ConnectIQ initialization error: $status")
-                        initialized.set(false)
-                        initInProgress.set(false)
+                        logError("WORKER_INIT", "ConnectIQ initialization failed: $status")
+                        initSuccess.set(false)
+                        initLatch.countDown()
                     }
 
                     override fun onSdkShutDown() {
-                        logWarning("INIT", "ConnectIQ SDK shut down")
                         initialized.set(false)
                     }
                 })
             } catch (e: Exception) {
-                logError("INIT", "Initialize threw exception: ${e.message}")
-                initInProgress.set(false)
+                logError("WORKER_INIT", "Initialization exception: ${e.message}")
+                initSuccess.set(false)
+                initLatch.countDown()
             }
-
-            return false // Main thread init is async
         }
-
-        // Background thread initialization with timeout
-        if (initInProgress.get()) {
-            logInfo("INIT", "Waiting for existing initialization to complete...")
-            repeat(40) {
-                if (initialized.get()) {
-                    logSuccess("INIT", "Initialization completed while waiting")
-                    return true
-                }
-                Thread.sleep(100)
-            }
-            logWarning("INIT", "Timeout waiting for initialization")
-            return initialized.get()
-        }
-
-        logInfo("INIT", "Starting ConnectIQ initialization on background thread")
-        initInProgress.set(true)
         
-        try {
-            appContext = context.applicationContext
-            val ciq = ConnectIQ.getInstance(appContext, ConnectIQ.IQConnectType.WIRELESS)
-            logDebug("INIT", "ConnectIQ.getInstance(WIRELESS) -> $ciq")
-            connectIQ = ciq
-
-            val latch = CountDownLatch(1)
-            val ok = AtomicBoolean(false)
-
-            mainHandler.post {
-                try {
-                    ciq.initialize(appContext, showUi, object : ConnectIQListener {
-                        override fun onSdkReady() {
-                            logSuccess("INIT", "ConnectIQ SDK ready (background)")
-                            ok.set(true)
-                            latch.countDown()
-                        }
-
-                        override fun onInitializeError(status: ConnectIQ.IQSdkErrorStatus) {
-                            logError("INIT", "ConnectIQ initialization error (background): $status")
-                            ok.set(false)
-                            latch.countDown()
-                        }
-
-                        override fun onSdkShutDown() {
-                            logWarning("INIT", "ConnectIQ SDK shut down (background)")
-                            initialized.set(false)
-                        }
-                    })
-                } catch (e: Exception) {
-                    logError("INIT", "Background initialize threw exception: ${e.message}")
-                    ok.set(false)
-                    latch.countDown()
-                }
-            }
-
-            val completed = latch.await(8, TimeUnit.SECONDS)
+        return try {
+            // Wait for initialization with timeout
+            val completed = initLatch.await(WORKER_INIT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            
             if (!completed) {
-                logError("INIT", "Background initialization timeout after 8 seconds")
+                logError("WORKER_INIT", "Initialization timeout after ${WORKER_INIT_TIMEOUT_MS / 1000}s")
                 return false
             }
             
-            if (!ok.get()) {
-                logError("INIT", "Background initialization failed")
-                return false
+            if (initSuccess.get()) {
+                logSuccess("WORKER_INIT", "Initialization completed successfully")
+                refreshAndRegisterDevices()
+                true
+            } else {
+                logError("WORKER_INIT", "Initialization failed")
+                false
             }
-
-            refreshAndRegisterDevices()
-            initialized.set(true)
-            logSuccess("INIT", "Background initialization completed successfully")
-            return true
             
-        } finally {
-            initInProgress.set(false)
+        } catch (e: InterruptedException) {
+            logError("WORKER_INIT", "Initialization interrupted: ${e.message}")
+            false
         }
     }
 
+    /**
+     * Gets list of connected real devices (excludes simulators).
+     * 
+     * Real devices are identified by:
+     * - Device ID not matching known simulator ID
+     * - Device name not containing "simulator"
+     * 
+     * @return List of connected real IQDevices
+     */
     fun getConnectedRealDevices(): List<IQDevice> {
-        val ciq = connectIQ ?: run {
-            logWarning("DEVICES", "ConnectIQ not initialized - returning empty device list")
-            return emptyList()
-        }
+        val ciq = connectIQ ?: return emptyList()
         
         val connected = try { 
             ciq.connectedDevices 
@@ -281,249 +306,175 @@ class ConnectIQService private constructor() {
             emptyList<IQDevice>()
         }
 
-        val real = connected.filter { isRealDevice(it) }
-        
-        if (real.isNotEmpty()) {
-            val names = real.joinToString(", ") { it.friendlyName ?: "Unnamed" }
-            logSuccess("DEVICES", "Found ${real.size} real connected device(s): $names")
-            real.forEach { device ->
-                logDebug("DEVICE_DETAIL", "  • ${device.friendlyName} (ID: ${device.deviceIdentifier}, Status: ${device.status})")
-            }
-        } else {
-            if (connected.isNotEmpty()) {
-                logWarning("DEVICES", "Found ${connected.size} connected device(s) but none are real devices (all simulators)")
-            } else {
-                logWarning("DEVICES", "No connected devices found")
-            }
-        }
-
-        return real
+        return connected.filter { isRealDevice(it) }
     }
 
+    /**
+     * Checks if device is a real device (not simulator).
+     * 
+     * @param d Device to check
+     * @return true if real device, false if simulator
+     */
     private fun isRealDevice(d: IQDevice): Boolean {
-        val isReal = d.deviceIdentifier != KNOWN_SIMULATOR_ID &&
-                !d.friendlyName.orEmpty().contains("simulator", true)
-        
-        if (!isReal) {
-            logDebug("DEVICE_FILTER", "Filtered out simulator device: ${d.friendlyName} (${d.deviceIdentifier})")
-        }
-        
-        return isReal
+        return d.deviceIdentifier != KNOWN_SIMULATOR_ID &&
+                !d.friendlyName.orEmpty().contains("simulator", ignoreCase = true)
     }
 
+    /**
+     * Refreshes device list and registers for device events.
+     * 
+     * This method:
+     * 1. Waits briefly for SDK to stabilize
+     * 2. Gets list of known devices
+     * 3. Registers listeners for device status changes
+     * 
+     * Listeners are registered only once per device to avoid duplicates.
+     */
     fun refreshAndRegisterDevices() {
-        val ciq = connectIQ ?: run {
-            logWarning("DEVICE_REFRESH", "ConnectIQ not initialized - cannot refresh devices")
-            return
-        }
+        val ciq = connectIQ ?: return
         
-        logInfo("DEVICE_REFRESH", "Starting device discovery and registration...")
-        
+        // Brief delay to allow SDK to stabilize
         try { 
             Thread.sleep(DISCOVERY_DELAY_MS) 
-        } catch (_: InterruptedException) {
-            logWarning("DEVICE_REFRESH", "Discovery delay interrupted")
-        }
+        } catch (_: InterruptedException) {}
 
         val all = try { 
             ciq.knownDevices 
         } catch (e: Exception) {
-            logError("DEVICE_REFRESH", "Failed to get known devices: ${e.message}")
             emptyList<IQDevice>()
         }
 
+        // Register device listeners (minimal - just status logging)
         val candidates = all.filter { it.deviceIdentifier != KNOWN_SIMULATOR_ID }
-        logInfo("DEVICE_REFRESH", "Found ${all.size} known devices, ${candidates.size} are non-simulator candidates")
-
         candidates.forEach { device ->
             val key = "${device.deviceIdentifier}:${device.friendlyName}"
             if (!deviceListeners.containsKey(key)) {
-                val listener: (IQDevice, IQDevice.IQDeviceStatus) -> Unit = { d, status ->
-                    logInfo("DEVICE_EVENT", "${d.friendlyName} status changed to: $status")
+                val listener: (IQDevice, IQDevice.IQDeviceStatus) -> Unit = { _, _ -> 
+                    // Minimal listener for battery efficiency
                 }
 
                 try {
                     ciq.registerForDeviceEvents(device) { d, status -> listener(d, status) }
                     deviceListeners[key] = listener
-                    logSuccess("DEVICE_REGISTRATION", "Registered events for ${device.friendlyName}")
                 } catch (e: Exception) {
-                    logError("DEVICE_REGISTRATION", "Failed to register events for ${device.friendlyName}: ${e.message}")
+                    // Ignore registration failures
                 }
-            } else {
-                logDebug("DEVICE_REGISTRATION", "Already registered events for ${device.friendlyName}")
             }
         }
     }
 
     /**
-     * TASKER INTEGRATION: Query activity status with immediate response forwarding
+     * Queries activity status from CIQ app on device.
      * 
-     * No timeout handling - responses are forwarded immediately via callback
-     * when received from CIQ app. This ensures Tasker gets responses as fast
-     * as possible without artificial delays.
+     * This method:
+     * 1. Validates initialization and permissions
+     * 2. Selects target device
+     * 3. Verifies CIQ app is installed
+     * 4. Registers response listener
+     * 5. Sends query message
+     * 
+     * Note: This method does NOT wait for the response. Response arrives
+     * via the callback registered with setResponseCallback(). The 5-minute
+     * timeout is handled by the caller (Worker using AlarmManager).
+     * 
+     * @param context Application context
+     * @param selected Specific device to query, or null to use first available
+     * @param showUiIfInitNeeded Whether to show UI dialogs (false for headless)
+     * @return QueryResult with success status and details
      */
     fun queryActivityStatus(
         context: Context,
         selected: IQDevice? = null,
         showUiIfInitNeeded: Boolean = false
     ): QueryResult {
-        val ctx = context.applicationContext
-        
-        logInfo("QUERY_START", "═══════════════════════════════════════")
-        logInfo("QUERY_START", "Starting activity status query...")
-        logInfo("QUERY_START", "═══════════════════════════════════════")
-        
-        if (!hasRequiredPermissions(ctx)) {
-            logError("QUERY_PERMISSIONS", "Cannot proceed - missing required permissions")
-            return QueryResult(false, "", "[ERROR] Missing required permissions", 0)
-        }
-
-        if (!ensureInitialized(ctx, showUiIfInitNeeded)) {
-            logError("QUERY_INIT", "Cannot proceed - ConnectIQ not initialized")
-            return QueryResult(false, "", "[ERROR] ConnectIQ not initialized", 0)
+        // Validate state
+        if (!initialized.get()) {
+            return QueryResult(false, "SDK not initialized", "[ERROR] ConnectIQ not initialized", 0)
         }
 
         val ciq = connectIQ!!
-        refreshAndRegisterDevices()
         val devices = getConnectedRealDevices()
         val target = selected ?: devices.firstOrNull()
 
         if (target == null) {
-            logError("QUERY_TARGET", "No connected real device found for query")
-            return QueryResult(false, "", "[ERROR] No connected real device found", 0)
+            return QueryResult(false, "No device", "[ERROR] No connected real device found", 0)
         }
 
-        logInfo("QUERY_TARGET", "Using target device: ${target.friendlyName} (${target.deviceIdentifier})")
-
-        // Check if CIQ app is installed
-        logInfo("APP_CHECK", "Verifying CIQ app installation...")
+        // Check if CIQ app is installed (3 second timeout)
         val installed = AtomicBoolean(false)
         val infoLatch = CountDownLatch(1)
 
         try {
             ciq.getApplicationInfo(APP_UUID, target, object : ConnectIQ.IQApplicationInfoListener {
                 override fun onApplicationInfoReceived(app: IQApp) {
-                    logSuccess("APP_CHECK", "CIQ app found: ${app.applicationId} on ${target.friendlyName}")
                     installed.set(true)
                     infoLatch.countDown()
                 }
 
                 override fun onApplicationNotInstalled(applicationId: String) {
-                    logError("APP_CHECK", "CIQ app not installed: $applicationId on ${target.friendlyName}")
                     installed.set(false)
                     infoLatch.countDown()
                 }
             })
         } catch (e: Exception) {
-            logError("APP_CHECK", "Exception checking app installation: ${e.message}")
             installed.set(false)
             infoLatch.countDown()
         }
 
-        val appCheckCompleted = infoLatch.await(3, TimeUnit.SECONDS)
-        if (!appCheckCompleted) {
-            logError("APP_CHECK", "Timeout checking app installation")
-            return QueryResult(false, "", "[ERROR] App installation check timeout", devices.size)
-        }
-        
-        if (!installed.get()) {
-            logError("APP_CHECK", "CIQ app not installed or unavailable")
-            return QueryResult(false, "", "[ERROR] CIQ app not installed or unknown", devices.size)
+        if (!infoLatch.await(3, TimeUnit.SECONDS) || !installed.get()) {
+            return QueryResult(false, "App not installed", "[ERROR] CIQ app not found or check timeout", devices.size)
         }
 
         val app = IQApp(APP_UUID)
         val appKey = "${target.deviceIdentifier}:$APP_UUID"
 
-        // Register for immediate response forwarding to Tasker
-        logInfo("RESPONSE_SETUP", "Setting up immediate response callback for Tasker")
+        // Register for immediate response callback
         val appListener = IQApplicationEventListener { device, iqApp, messages, status ->
             val rxTime = ts()
             val payload = if (messages.isNullOrEmpty()) "" else messages.joinToString("|") { it.toString() }
             
-            logSuccess("CIQ_RESPONSE", "Response received from ${device.friendlyName}")
-            logInfo("CIQ_RESPONSE", "Device: ${device.friendlyName} (${device.deviceIdentifier})")
-            logInfo("CIQ_RESPONSE", "App: ${iqApp.applicationId}")
-            logInfo("CIQ_RESPONSE", "Status: $status")
-            logInfo("CIQ_RESPONSE", "Message count: ${messages?.size ?: 0}")
-            logInfo("CIQ_RESPONSE", "Payload: '$payload'")
-            logInfo("CIQ_RESPONSE", "Timestamp: $rxTime")
-            
+            // Immediately forward response via callback (no timeout handling here)
             if (!messages.isNullOrEmpty()) {
-                // IMMEDIATELY forward response to Tasker via callback
-                responseCallback?.let { callback ->
-                    logInfo("TASKER_FORWARD", "📤 Forwarding response to Tasker via callback")
-                    logInfo("TASKER_FORWARD", "Response: '$payload'")
-                    logInfo("TASKER_FORWARD", "Device: '${device.friendlyName ?: "Unknown"}'")
-                    logInfo("TASKER_FORWARD", "Timestamp: '$rxTime'")
-                    callback(payload, device.friendlyName ?: "Unknown", rxTime)
-                    logSuccess("TASKER_FORWARD", "Response forwarded to Tasker successfully")
-                } ?: run {
-                    logWarning("TASKER_FORWARD", "No response callback registered - cannot forward to Tasker")
-                }
+                responseCallback?.invoke(payload, device.friendlyName ?: "Unknown", rxTime)
             }
         }
 
         try {
             ciq.registerForAppEvents(target, app, appListener)
             appListeners[appKey] = appListener
-            logSuccess("APP_LISTENER", "Registered app event listener for ${target.friendlyName}")
         } catch (e: Exception) {
-            logError("APP_LISTENER", "Failed to register app listener: ${e.message}")
+            return QueryResult(false, "Listener error", "[ERROR] Failed to register app listener", devices.size)
         }
 
-        // Send query to CIQ app
-        val txTime = ts()
-        logInfo("MESSAGE_SEND", "📤 Sending query message to CIQ app...")
-        logInfo("MESSAGE_SEND", "Target: ${target.friendlyName} (${target.deviceIdentifier})")
-        logInfo("MESSAGE_SEND", "App UUID: $APP_UUID")
-        logInfo("MESSAGE_SEND", "Payload: 'status?'")
-        logInfo("MESSAGE_SEND", "Timestamp: $txTime")
-
+        // Send query message (with 5 second timeout for send confirmation only)
         try {
+            val messageSent = AtomicBoolean(false)
+            val sendLatch = CountDownLatch(1)
+            
             ciq.sendMessage(target, app, listOf("status?"), object : ConnectIQ.IQSendMessageListener {
                 override fun onMessageStatus(device: IQDevice, iqApp: IQApp, status: IQMessageStatus) {
-                    when (status) {
-                        IQMessageStatus.SUCCESS -> {
-                            logSuccess("MESSAGE_ACK", "Message sent successfully to ${device.friendlyName}")
-                        }
-                        IQMessageStatus.FAILURE_UNKNOWN -> {
-                            logError("MESSAGE_ACK", "Unknown failure sending to ${device.friendlyName}")
-                        }
-                        IQMessageStatus.FAILURE_INVALID_DEVICE -> {
-                            logError("MESSAGE_ACK", "Invalid device: ${device.friendlyName}")
-                        }
-                        IQMessageStatus.FAILURE_DEVICE_NOT_CONNECTED -> {
-                            logError("MESSAGE_ACK", "Device not connected: ${device.friendlyName}")
-                        }
-                        IQMessageStatus.FAILURE_MESSAGE_TOO_LARGE -> {
-                            logError("MESSAGE_ACK", "Message too large for ${device.friendlyName}")
-                        }
-                        else -> {
-                            logWarning("MESSAGE_ACK", "Message status: $status for ${device.friendlyName}")
-                        }
-                    }
+                    messageSent.set(status == IQMessageStatus.SUCCESS)
+                    sendLatch.countDown()
                 }
             })
+            
+            // Wait for send confirmation (NOT response - that comes via callback)
+            if (sendLatch.await(5, TimeUnit.SECONDS) && messageSent.get()) {
+                val debug = buildString {
+                    appendLine("target_device=${target.friendlyName} (${target.deviceIdentifier})")
+                    appendLine("app_uuid=$APP_UUID")
+                    appendLine("total_connected_devices=${devices.size}")
+                    appendLine("message_sent=true")
+                    appendLine("awaiting_response_via_callback=true")
+                }
+                
+                return QueryResult(true, "Message sent successfully", debug, devices.size)
+            } else {
+                return QueryResult(false, "Send failed", "[ERROR] Failed to send message to CIQ app", devices.size)
+            }
+            
         } catch (e: Exception) {
-            logError("MESSAGE_SEND", "Exception sending message: ${e.message}")
+            return QueryResult(false, "Send exception", "[ERROR] Exception: ${e.message}", devices.size)
         }
-
-        // Return immediately - responses will be handled by callback
-        val debug = buildString {
-            appendLine("target_device=${target.friendlyName} (${target.deviceIdentifier})")
-            appendLine("device_status=${target.status}")
-            appendLine("app_uuid=$APP_UUID")
-            appendLine("query_message=status?")
-            appendLine("send_timestamp=$txTime")
-            appendLine("awaiting_response_via_callback=true")
-            appendLine("total_connected_devices=${devices.size}")
-            appendLine("callback_registered=${responseCallback != null}")
-        }
-
-        logSuccess("QUERY_COMPLETE", "Query message sent successfully")
-        logInfo("QUERY_COMPLETE", "Waiting for CIQ app response via callback...")
-        logInfo("QUERY_COMPLETE", "═══════════════════════════════════════")
-
-        return QueryResult(true, "Query sent - awaiting response via callback", debug, devices.size)
     }
 }

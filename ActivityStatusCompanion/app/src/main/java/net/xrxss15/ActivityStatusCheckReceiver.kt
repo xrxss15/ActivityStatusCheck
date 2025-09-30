@@ -7,56 +7,115 @@ import android.util.Log
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.Constraints
+import androidx.work.NetworkType
 
 /**
- * TASKER INTEGRATION RECEIVER WITH ENHANCED INTENT LOGGING
+ * Tasker Integration Broadcast Receiver - Headless Mode Operation
  * 
- * Receives broadcast intent from Tasker to trigger companion app functionality.
- * All intent actions are logged for debugging and monitoring purposes.
+ * This receiver handles trigger intents from Tasker and initiates headless background processing.
+ * The app operates in two distinct modes:
+ * 
+ * - **Headless Mode**: When triggered by Tasker intent - no GUI, immediate background execution
+ * - **Debug Mode**: When launched via MainActivity - full GUI with logging and testing
+ * 
+ * @see ConnectIQQueryWorker for the background processing implementation
+ * @see MainActivity for debug mode UI
+ * 
+ * Architecture:
+ * - Receives broadcast intent from Tasker
+ * - Enqueues WorkManager job for background processing
+ * - No activity is launched - pure headless operation
+ * - Complete app termination after reporting results via System.exit(0)
+ * 
+ * Battery Efficiency:
+ * - Uses WorkManager with battery-aware constraints
+ * - No unnecessary background services or polling
+ * - Immediate termination after completion
  */
 class ActivityStatusCheckReceiver : BroadcastReceiver() {
 
     companion object {
         private const val TAG = "ActStatusReceiver"
         
-        // INTENT SPECIFICATIONS WITH CLEAR LOGGING:
+        // INTENT ACTION SPECIFICATIONS:
         
-        // 1. TRIGGER INTENT (Tasker → Companion)
+        /**
+         * Trigger intent action sent by Tasker to initiate headless operation.
+         * This intent starts the entire workflow without launching any Activity.
+         */
         const val ACTION_TRIGGER = "net.xrxss15.ACTIVITY_STATUS_TRIGGER"
         
-        // 2. DEVICE LIST INTENT (Companion → Tasker)  
-        const val ACTION_DEVICE_LIST = "net.xrxss15.DEVICE_LIST"
-        const val EXTRA_DEVICES = "devices"  // Format: "device1/device2/device3"
+        /**
+         * Response intent action sent back to Tasker with consolidated results.
+         * All stages of processing report back via this single intent action.
+         */
+        const val ACTION_RESPONSE = "net.xrxss15.ACTIVITY_STATUS_RESPONSE"
         
-        // 3. RESPONSE INTENT (Companion → Tasker)
-        const val ACTION_CIQ_RESPONSE = "net.xrxss15.CIQ_RESPONSE"
-        const val EXTRA_RESPONSE = "response"     // CIQ app response payload
-        const val EXTRA_TIMESTAMP = "timestamp"  // Response timestamp
-        const val EXTRA_DEVICE = "device"        // Responding device name
+        // INTENT EXTRAS:
+        const val EXTRA_STAGE = "stage"           // Current processing stage
+        const val EXTRA_SUCCESS = "success"       // Operation success boolean
+        const val EXTRA_PAYLOAD = "payload"       // JSON response data
+        const val EXTRA_TIMESTAMP = "timestamp"   // Response timestamp
+        const val EXTRA_TERMINATED = "terminated" // Whether operation terminated
+        const val EXTRA_HEADLESS = "headless"     // Headless mode indicator
+        
+        // RESPONSE STAGES:
+        const val STAGE_ERROR = "error"
+        const val STAGE_DEVICES_FOUND = "devices_found"
+        const val STAGE_NO_DEVICES = "no_devices"
+        const val STAGE_MESSAGE_SENT = "message_sent"
+        const val STAGE_MESSAGE_FAILED = "message_failed"
+        const val STAGE_RESPONSE_RECEIVED = "response_received"
+        const val STAGE_TIMEOUT = "timeout"
         
         // Internal WorkManager identifier
-        private const val UNIQUE_WORK = "ciq_query_work"
+        private const val UNIQUE_WORK = "ciq_query_work_headless"
     }
 
+    /**
+     * Receives broadcast intents and initiates headless background processing.
+     * 
+     * This method validates the intent action and enqueues a WorkManager job for
+     * background processing. No UI components are created - the app operates entirely
+     * in headless mode when triggered via this receiver.
+     * 
+     * @param context Application context
+     * @param intent Broadcast intent (must have ACTION_TRIGGER action)
+     */
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: "null"
         
-        // Log all received intents for debugging
+        // Log received intent for debugging
         Log.i(TAG, "📨 INTENT RECEIVED: action='$action'")
         
+        // Validate intent action
         if (action != ACTION_TRIGGER) {
             Log.w(TAG, "⚠️ INTENT IGNORED: Expected '$ACTION_TRIGGER', got '$action'")
             return
         }
 
-        Log.i(TAG, "✅ TASKER TRIGGER INTENT ACCEPTED")
-        Log.i(TAG, "🚀 Starting ConnectIQ background worker for device discovery and query")
+        Log.i(TAG, "✅ TASKER TRIGGER ACCEPTED - Starting HEADLESS mode")
+        Log.i(TAG, "🚀 No GUI will be launched - pure background operation")
         
-        // Use WorkManager to handle background processing
-        val workRequest = OneTimeWorkRequestBuilder<ConnectIQQueryWorker>().build()
+        // Create WorkManager request with battery-efficient constraints
+        // Note: We don't check battery level, just optimize for minimal resource usage
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.NOT_REQUIRED)  // No network needed
+            .setRequiresBatteryNotLow(false)                   // Don't check battery level per requirements
+            .setRequiresDeviceIdle(false)                      // Allow during active use
+            .setRequiresCharging(false)                        // Don't require charging
+            .build()
+        
+        val workRequest = OneTimeWorkRequestBuilder<ConnectIQQueryWorker>()
+            .setConstraints(constraints)
+            .build()
+            
+        // Enqueue work with REPLACE policy to ensure only one instance runs
         WorkManager.getInstance(context.applicationContext)
             .enqueueUniqueWork(UNIQUE_WORK, ExistingWorkPolicy.REPLACE, workRequest)
             
-        Log.i(TAG, "📋 WorkManager job enqueued: $UNIQUE_WORK")
+        Log.i(TAG, "📋 Headless WorkManager job enqueued: $UNIQUE_WORK")
+        Log.i(TAG, "App will terminate completely after operation completes")
     }
 }

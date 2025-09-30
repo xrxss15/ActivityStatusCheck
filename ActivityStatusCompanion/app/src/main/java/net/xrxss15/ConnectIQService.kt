@@ -108,7 +108,7 @@ class ConnectIQService private constructor() {
     
     // Event listener management
     private val deviceListeners = mutableMapOf<String, (IQDevice, IQDevice.IQDeviceStatus) -> Unit>()
-    private val appListeners = mutableMapOf<String, IQApplicationEventListener>() // Fixed syntax error
+    private val appListeners = mutableMapOf<String, IQApplicationEventListener>()
     
     // Callback management
     @Volatile private var logSink: ((String) -> Unit)? = null
@@ -349,8 +349,9 @@ class ConnectIQService private constructor() {
         candidates.forEach { device ->
             val key = "${device.deviceIdentifier}:${device.friendlyName}"
             if (!deviceListeners.containsKey(key)) {
+                // Minimal listener for battery efficiency - parameters intentionally unused
                 val listener: (IQDevice, IQDevice.IQDeviceStatus) -> Unit = { _, _ -> 
-                    // Minimal listener for battery efficiency
+                    // Empty listener body - just for registration
                 }
 
                 try {
@@ -377,11 +378,15 @@ class ConnectIQService private constructor() {
      * via the callback registered with setResponseCallback(). The 5-minute
      * timeout is handled by the caller (Worker using AlarmManager).
      * 
-     * @param context Application context
+     * The parameters context and showUiIfInitNeeded are kept for API compatibility
+     * but not used in headless mode operations.
+     * 
+     * @param context Application context (reserved for future use)
      * @param selected Specific device to query, or null to use first available
-     * @param showUiIfInitNeeded Whether to show UI dialogs (false for headless)
+     * @param showUiIfInitNeeded Whether to show UI dialogs (reserved for future use)
      * @return QueryResult with success status and details
      */
+    @Suppress("UNUSED_PARAMETER")
     fun queryActivityStatus(
         context: Context,
         selected: IQDevice? = null,
@@ -429,7 +434,8 @@ class ConnectIQService private constructor() {
         val appKey = "${target.deviceIdentifier}:$APP_UUID"
 
         // Register for immediate response callback
-        val appListener = IQApplicationEventListener { device, iqApp, messages, status ->
+        // Parameters iqApp and status are intentionally unused - we only need device and messages
+        val appListener = IQApplicationEventListener { device, _, messages, _ ->
             val rxTime = ts()
             val payload = if (messages.isNullOrEmpty()) "" else messages.joinToString("|") { it.toString() }
             

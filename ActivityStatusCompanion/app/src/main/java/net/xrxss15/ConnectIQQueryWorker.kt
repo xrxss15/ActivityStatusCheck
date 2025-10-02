@@ -367,6 +367,7 @@ class ConnectIQQueryWorker(
             })
         }
         
+        // Parse message: EVENT|TIMESTAMP|ACTIVITY|DURATION
         val parts = result.message.split("|")
         
         val payload = JSONObject().apply {
@@ -375,7 +376,7 @@ class ConnectIQQueryWorker(
             put("device_count", devices.size)
             put("devices", devicesArray)
             put("responding_device", result.deviceName)
-            put("message", "Message received")
+            put("message", "Activity event received")
             put("raw_message", result.message)
             put("terminated", true)
             put("headless_mode", true)
@@ -384,7 +385,7 @@ class ConnectIQQueryWorker(
                 put("event", parts[0])
                 put("event_timestamp", parts[1])
                 put("activity", parts[2])
-                put("retry_count", parts[3])
+                put("duration", parts[3])
             }
             
             put("total_runtime_ms", System.currentTimeMillis() - startTime)

@@ -19,7 +19,7 @@ import java.util.Locale
  * MainActivity - Passive Message Listener UI
  * 
  * Displays incoming messages from CIQ app in real-time.
- * No query sending - just passive listening.
+ * Message format: EVENT|TIMESTAMP|ACTIVITY|DURATION
  */
 class MainActivity : Activity() {
 
@@ -43,6 +43,21 @@ class MainActivity : Activity() {
     private fun formatTimestamp(timestampMillis: Long): String {
         val date = Date(timestampMillis)
         return SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault()).format(date)
+    }
+    
+    /**
+     * Formats duration in seconds to readable format
+     */
+    private fun formatDuration(seconds: Int): String {
+        val hours = seconds / 3600
+        val minutes = (seconds % 3600) / 60
+        val secs = seconds % 60
+        
+        return when {
+            hours > 0 -> String.format("%dh %02dm %02ds", hours, minutes, secs)
+            minutes > 0 -> String.format("%dm %02ds", minutes, secs)
+            else -> String.format("%ds", secs)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -94,7 +109,7 @@ class MainActivity : Activity() {
 
             scroll = ScrollView(this@MainActivity)
             logView = TextView(this@MainActivity).apply {
-                textSize = 12f  // Larger font
+                textSize = 12f
                 typeface = android.graphics.Typeface.MONOSPACE
                 setPadding(12, 12, 12, 12)
                 setBackgroundColor(0xFF1E1E1E.toInt())
@@ -105,34 +120,56 @@ class MainActivity : Activity() {
         }
         setContentView(root)
 
-        // Register log sink
         connectIQService.registerLogSink { line -> appendLog(line) }
         
-        // Register message callback with formatted display
+        // Register message callback with proper parsing
         connectIQService.setMessageCallback { payload, deviceName, timestampMillis ->
             appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             appendLog("📱 MESSAGE RECEIVED")
             appendLog("Device: $deviceName")
-            appendLog("Time: ${formatTimestamp(timestampMillis)}")
+            appendLog("Received: ${formatTimestamp(timestampMillis)}")
             appendLog("")
             
-            // Parse message: EVENT|TIMESTAMP|ACTIVITY|RETRY
+            // Parse message: EVENT|TIMESTAMP|ACTIVITY|DURATION
             val parts = payload.split("|")
             if (parts.size >= 4) {
-                appendLog("Event: ${parts[0]}")
+                val event = parts[0]
+                val eventTimestamp = parts[1]
+                val activity = parts[2]
+                val duration = parts[3]
                 
-                // Convert CIQ timestamp (seconds since epoch) to readable format
+                // Display event type
+                val eventDisplay = when (event) {
+                    "ACTIVITY_STARTED" -> "🏃 ACTIVITY STARTED"
+                    "ACTIVITY_STOPPED" -> "⏹️  ACTIVITY STOPPED"
+                    else -> event
+                }
+                appendLog(eventDisplay)
+                
+                // Convert and display event timestamp
                 try {
-                    val ciqTimestamp = parts[1].toLong() * 1000 // Convert to milliseconds
-                    appendLog("Event Time: ${formatTimestamp(ciqTimestamp)}")
+                    val eventTime = eventTimestamp.toLong() * 1000
+                    appendLog("Event Time: ${formatTimestamp(eventTime)}")
                 } catch (e: Exception) {
-                    appendLog("Event Time: ${parts[1]}")
+                    appendLog("Event Time: $eventTimestamp")
                 }
                 
-                appendLog("Activity: ${parts[2]}")
-                appendLog("Retry: ${parts[3]}")
+                // Display activity type
+                appendLog("Activity: $activity")
+                
+                // Display duration (formatted for STOP events)
+                if (event == "ACTIVITY_STOPPED") {
+                    try {
+                        val durationSeconds = duration.toInt()
+                        appendLog("Duration: ${formatDuration(durationSeconds)}")
+                    } catch (e: Exception) {
+                        appendLog("Duration: $duration")
+                    }
+                } else {
+                    appendLog("Duration: $duration")
+                }
             } else {
-                appendLog("Raw: $payload")
+                appendLog("Raw message: $payload")
             }
             
             appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -171,7 +208,7 @@ class MainActivity : Activity() {
         appendLog("Activity Timer Companion")
         appendLog("PASSIVE LISTENER MODE")
         appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        appendLog("Waiting for messages from watch...")
+        appendLog("Waiting for activity events...")
         appendLog("")
     }
 
@@ -236,7 +273,6 @@ class MainActivity : Activity() {
             appendLog("[${ts()}] Permissions ${if (allGranted) "✅ Granted" else "❌ Denied"}")
             
             if (allGranted) {
-                // Auto-initialize after permissions granted
                 Thread {
                     Thread.sleep(500)
                     val ok = connectIQService.initializeForWorker(this@MainActivity)

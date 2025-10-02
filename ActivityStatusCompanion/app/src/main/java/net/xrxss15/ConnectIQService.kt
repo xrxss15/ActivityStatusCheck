@@ -40,17 +40,14 @@ class ConnectIQService private constructor() {
             }
     }
 
-    // ConnectIQ SDK state
     private var connectIQ: ConnectIQ? = null
     private val initialized = AtomicBoolean(false)
     private var appContext: Context? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     
-    // Event listener management
     private val deviceListeners = mutableMapOf<String, (IQDevice, IQDevice.IQDeviceStatus) -> Unit>()
     private val appListeners = mutableMapOf<String, IQApplicationEventListener>()
     
-    // Callback management
     @Volatile private var logSink: ((String) -> Unit)? = null
     @Volatile private var messageCallback: ((String, String, Long) -> Unit)? = null
 
@@ -58,10 +55,6 @@ class ConnectIQService private constructor() {
         logSink = sink 
     }
     
-    /**
-     * Sets callback for incoming CIQ messages.
-     * Callback parameters: (payload, deviceName, timestampMillis)
-     */
     fun setMessageCallback(callback: ((String, String, Long) -> Unit)?) {
         messageCallback = callback
     }
@@ -180,10 +173,6 @@ class ConnectIQService private constructor() {
                 !d.friendlyName.orEmpty().contains("simulator", ignoreCase = true)
     }
 
-    /**
-     * Registers message listeners for all connected devices.
-     * This enables passive listening for incoming CIQ messages.
-     */
     fun registerListenersForAllDevices() {
         val ciq = connectIQ ?: return
         
@@ -207,17 +196,14 @@ class ConnectIQService private constructor() {
                 try {
                     val app = IQApp(APP_UUID)
                     
-                    // Register listener for incoming messages
                     val appListener = IQApplicationEventListener { dev, _, messages, _ ->
                         if (!messages.isNullOrEmpty()) {
-                            // Parse message format: EVENT|TIMESTAMP|ACTIVITY|RETRY
                             val payload = messages.joinToString("|") { it.toString() }
                             val timestamp = System.currentTimeMillis()
                             
                             logSuccess("Message from ${dev.friendlyName}")
                             logInfo("Payload: $payload")
                             
-                            // Forward to callback
                             messageCallback?.invoke(payload, dev.friendlyName ?: "Unknown", timestamp)
                         }
                     }
@@ -232,7 +218,6 @@ class ConnectIQService private constructor() {
                 }
             }
             
-            // Also register device status listener
             val deviceKey = "${device.deviceIdentifier}:${device.friendlyName}"
             if (!deviceListeners.containsKey(deviceKey)) {
                 val listener: (IQDevice, IQDevice.IQDeviceStatus) -> Unit = { d, status ->
@@ -251,9 +236,6 @@ class ConnectIQService private constructor() {
         logSuccess("All listeners registered - waiting for messages")
     }
 
-    /**
-     * Refreshes listeners (called when devices change)
-     */
     fun refreshListeners() {
         registerListenersForAllDevices()
     }

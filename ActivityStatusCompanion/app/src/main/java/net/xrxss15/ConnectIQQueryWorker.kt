@@ -381,11 +381,12 @@ class ConnectIQQueryWorker(
             put("terminated", true)
             put("headless_mode", true)
             
+            // Correctly parse: EVENT|TIMESTAMP|ACTIVITY|DURATION
             if (parts.size >= 4) {
-                put("event", parts[0])
-                put("event_timestamp", parts[1])
-                put("activity", parts[2])
-                put("duration", parts[3])
+                put("event", parts[0])              // ACTIVITY_STARTED or ACTIVITY_STOPPED
+                put("event_timestamp", parts[1])    // Unix timestamp
+                put("activity", parts[2])           // Activity name as string
+                put("duration", parts[3])           // Duration in seconds
             }
             
             put("total_runtime_ms", System.currentTimeMillis() - startTime)

@@ -15,6 +15,12 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * MainActivity - Passive Message Listener UI
+ * 
+ * Displays incoming messages from CIQ app in real-time.
+ * No query sending - just passive listening.
+ */
 class MainActivity : Activity() {
 
     private lateinit var logView: TextView
@@ -22,7 +28,6 @@ class MainActivity : Activity() {
     private lateinit var devicesSpinner: Spinner
     private lateinit var refreshBtn: Button
     private lateinit var initBtn: Button
-    private lateinit var queryBtn: Button
     private lateinit var copyBtn: Button
     private lateinit var clearBtn: Button
 
@@ -30,45 +35,55 @@ class MainActivity : Activity() {
     private val connectIQService = ConnectIQService.getInstance()
     private var devices: List<IQDevice> = emptyList()
 
-    private fun ts(): String = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
+    private fun ts(): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
+    
+    /**
+     * Formats Unix timestamp to dd.MM.yyyy HH:mm:ss
+     */
+    private fun formatTimestamp(timestampMillis: Long): String {
+        val date = Date(timestampMillis)
+        return SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault()).format(date)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(24, 24, 24, 24)
+            setPadding(16, 16, 16, 16)
 
             val header = TextView(this@MainActivity).apply {
-                text = "Activity Status Companion\nDebug Mode"
+                text = "Activity Timer Companion\nPassive Listener"
                 textSize = 16f
                 setTypeface(null, android.graphics.Typeface.BOLD)
             }
             addView(header)
 
-            val row1 = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.HORIZONTAL }
+            val row1 = LinearLayout(this@MainActivity).apply { 
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, 8, 0, 8)
+            }
             initBtn = Button(this@MainActivity).apply { 
-                text = "Init"
+                text = "Initialize"
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             refreshBtn = Button(this@MainActivity).apply { 
-                text = "Devices"
+                text = "Refresh"
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
-            queryBtn = Button(this@MainActivity).apply { 
-                text = "Query"
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-            row1.addView(initBtn); row1.addView(refreshBtn); row1.addView(queryBtn)
+            row1.addView(initBtn); row1.addView(refreshBtn)
             addView(row1)
 
-            val row2 = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.HORIZONTAL }
+            val row2 = LinearLayout(this@MainActivity).apply { 
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, 0, 0, 8)
+            }
             copyBtn = Button(this@MainActivity).apply { 
-                text = "Copy"
+                text = "Copy Log"
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             clearBtn = Button(this@MainActivity).apply { 
-                text = "Clear"
+                text = "Clear Log"
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             row2.addView(copyBtn); row2.addView(clearBtn)
@@ -79,9 +94,9 @@ class MainActivity : Activity() {
 
             scroll = ScrollView(this@MainActivity)
             logView = TextView(this@MainActivity).apply {
-                textSize = 10f
+                textSize = 12f  // Larger font
                 typeface = android.graphics.Typeface.MONOSPACE
-                setPadding(8, 8, 8, 8)
+                setPadding(12, 12, 12, 12)
                 setBackgroundColor(0xFF1E1E1E.toInt())
                 setTextColor(0xFF00FF00.toInt())
             }
@@ -90,21 +105,37 @@ class MainActivity : Activity() {
         }
         setContentView(root)
 
+        // Register log sink
         connectIQService.registerLogSink { line -> appendLog(line) }
         
-        connectIQService.setResponseCallback { response, deviceName, timestamp ->
-            appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            appendLog("[$timestamp] 📱 RESPONSE")
+        // Register message callback with formatted display
+        connectIQService.setMessageCallback { payload, deviceName, timestampMillis ->
+            appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            appendLog("📱 MESSAGE RECEIVED")
             appendLog("Device: $deviceName")
-            appendLog("Data: $response")
+            appendLog("Time: ${formatTimestamp(timestampMillis)}")
+            appendLog("")
             
-            val parts = response.split("|")
-            if (parts.size >= 3) {
-                appendLog("  Status: ${parts[0]}")
-                appendLog("  Time: ${parts[1]}")
-                appendLog("  Count: ${parts[2]}")
+            // Parse message: EVENT|TIMESTAMP|ACTIVITY|RETRY
+            val parts = payload.split("|")
+            if (parts.size >= 4) {
+                appendLog("Event: ${parts[0]}")
+                
+                // Convert CIQ timestamp (seconds since epoch) to readable format
+                try {
+                    val ciqTimestamp = parts[1].toLong() * 1000 // Convert to milliseconds
+                    appendLog("Event Time: ${formatTimestamp(ciqTimestamp)}")
+                } catch (e: Exception) {
+                    appendLog("Event Time: ${parts[1]}")
+                }
+                
+                appendLog("Activity: ${parts[2]}")
+                appendLog("Retry: ${parts[3]}")
+            } else {
+                appendLog("Raw: $payload")
             }
-            appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            
+            appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         }
 
         if (!hasRequiredPermissions()) {
@@ -119,41 +150,39 @@ class MainActivity : Activity() {
         }
 
         refreshBtn.setOnClickListener { 
-            reloadDevices() 
-        }
-
-        queryBtn.setOnClickListener {
             Thread {
-                val selected = devices.getOrNull(devicesSpinner.selectedItemPosition)
-                connectIQService.queryActivityStatus(this@MainActivity, selected, true)
+                connectIQService.refreshListeners()
+                reloadDevices()
             }.start()
         }
 
         copyBtn.setOnClickListener {
             val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
             cm.setPrimaryClip(android.content.ClipData.newPlainText("log", logView.text))
-            Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Log copied", Toast.LENGTH_SHORT).show()
         }
 
         clearBtn.setOnClickListener { 
-            logView.text = "" 
+            logView.text = ""
+            appendLog("Log cleared at ${ts()}")
         }
 
-        appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        appendLog("Activity Status Companion")
-        appendLog("DEBUG MODE")
-        appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        appendLog("Tasker:")
-        appendLog("  Trigger: ACTIVITY_STATUS_TRIGGER")
-        appendLog("  Response: ACTIVITY_STATUS_RESPONSE")
-        appendLog("  Timeout: 5 min (AlarmManager)")
-        appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        appendLog("Activity Timer Companion")
+        appendLog("PASSIVE LISTENER MODE")
+        appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        appendLog("Waiting for messages from watch...")
+        appendLog("")
     }
 
     private fun reloadDevices() {
         Thread {
             val ds = connectIQService.getConnectedRealDevices()
-            val labels = ds.map { "${it.friendlyName} (${it.deviceIdentifier})" }
+            val labels = if (ds.isEmpty()) {
+                listOf("No devices found")
+            } else {
+                ds.map { "${it.friendlyName} (${it.deviceIdentifier})" }
+            }
             
             handler.post {
                 devices = ds
@@ -163,9 +192,9 @@ class MainActivity : Activity() {
                 devicesSpinner.adapter = adapter
                 
                 if (devices.isEmpty()) {
-                    appendLog("[${ts()}] ⚠️ No devices")
+                    appendLog("[${ts()}] ⚠️ No devices connected")
                 } else {
-                    appendLog("[${ts()}] ✅ ${devices.size} device(s):")
+                    appendLog("[${ts()}] ✅ ${devices.size} device(s) found:")
                     devices.forEach { device ->
                         appendLog("  • ${device.friendlyName}")
                     }
@@ -204,7 +233,16 @@ class MainActivity : Activity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 100) {
             val allGranted = grantResults.all { it == PackageManager.PERMISSION_GRANTED }
-            appendLog("[${ts()}] ${if (allGranted) "✅ Granted" else "❌ Denied"}")
+            appendLog("[${ts()}] Permissions ${if (allGranted) "✅ Granted" else "❌ Denied"}")
+            
+            if (allGranted) {
+                // Auto-initialize after permissions granted
+                Thread {
+                    Thread.sleep(500)
+                    val ok = connectIQService.initializeForWorker(this@MainActivity)
+                    if (ok) handler.post { reloadDevices() }
+                }.start()
+            }
         }
     }
 }

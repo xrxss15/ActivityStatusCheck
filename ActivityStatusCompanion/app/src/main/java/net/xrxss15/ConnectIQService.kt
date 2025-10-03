@@ -20,9 +20,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * ConnectIQ Service - Passive Message Listener
- * 
- * Continuously listens for messages from CIQ app without sending queries.
- * Automatically registers listeners for all connected devices.
  */
 class ConnectIQService private constructor() {
 
@@ -176,7 +173,7 @@ class ConnectIQService private constructor() {
     fun registerListenersForAllDevices() {
         val ciq = connectIQ ?: return
         
-        logInfo("Registering listeners for all devices...")
+        logInfo("Registering listeners...")
         
         try { 
             Thread.sleep(DISCOVERY_DELAY_MS) 
@@ -211,10 +208,10 @@ class ConnectIQService private constructor() {
                     ciq.registerForAppEvents(device, app, appListener)
                     appListeners[appKey] = appListener
                     
-                    logSuccess("Listener registered for ${device.friendlyName}")
+                    logSuccess("Listener for ${device.friendlyName}")
                     
                 } catch (e: Exception) {
-                    logError("Failed to register listener for ${device.friendlyName}: ${e.message}")
+                    logError("Failed to register ${device.friendlyName}: ${e.message}")
                 }
             }
             
@@ -233,7 +230,7 @@ class ConnectIQService private constructor() {
             }
         }
         
-        logSuccess("All listeners registered - waiting for messages")
+        logSuccess("Listeners active")
     }
 
     fun refreshListeners() {

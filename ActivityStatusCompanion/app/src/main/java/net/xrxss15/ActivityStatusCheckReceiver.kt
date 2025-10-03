@@ -7,61 +7,76 @@ import android.util.Log
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
-import androidx.work.Constraints
-import androidx.work.NetworkType
 
+/**
+ * Activity Status Check Receiver
+ * 
+ * Handles START and STOP intents for the Garmin message listener.
+ */
 class ActivityStatusCheckReceiver : BroadcastReceiver() {
 
     companion object {
         private const val TAG = "ActStatusReceiver"
         
-        const val ACTION_TRIGGER = "net.xrxss15.ACTIVITY_STATUS_TRIGGER"
-        const val ACTION_RESPONSE = "net.xrxss15.ACTIVITY_STATUS_RESPONSE"
+        // Control intents
+        const val ACTION_START = "net.xrxss15.START_GARMIN_LISTENER"
+        const val ACTION_STOP = "net.xrxss15.STOP_GARMIN_LISTENER"
         
-        const val EXTRA_STAGE = "stage"
-        const val EXTRA_SUCCESS = "success"
-        const val EXTRA_PAYLOAD = "payload"
-        const val EXTRA_TIMESTAMP = "timestamp"
-        const val EXTRA_TERMINATED = "terminated"
-        const val EXTRA_HEADLESS = "headless"
+        // Response intent - single action for all messages
+        const val ACTION_MESSAGE = "net.xrxss15.GARMIN_MESSAGE"
         
-        const val STAGE_ERROR = "error"
-        const val STAGE_DEVICES_FOUND = "devices_found"
-        const val STAGE_NO_DEVICES = "no_devices"
-        const val STAGE_MESSAGE_SENT = "message_sent"
-        const val STAGE_MESSAGE_FAILED = "message_failed"
-        const val STAGE_RESPONSE_RECEIVED = "response_received"
-        const val STAGE_TIMEOUT = "timeout"
+        // Message payload key
+        const val EXTRA_MESSAGE = "message"
         
-        private const val UNIQUE_WORK = "ciq_listener_work"
+        // Unique work identifier
+        private const val UNIQUE_WORK = "garmin_listener"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        val action = intent.action ?: "null"
+        val action = intent.action ?: return
         
-        Log.i(TAG, "Intent received: $action")
+        Log.i(TAG, "Received intent: $action")
         
-        if (action != ACTION_TRIGGER) {
-            Log.w(TAG, "Ignoring action: $action")
-            return
+        when (action) {
+            ACTION_START -> {
+                Log.i(TAG, "Starting Garmin listener - terminating any existing instances")
+                startListener(context)
+            }
+            ACTION_STOP -> {
+                Log.i(TAG, "Stopping Garmin listener - terminating all instances")
+                stopListener(context)
+            }
+            else -> {
+                Log.w(TAG, "Unknown action: $action")
+            }
         }
-
-        Log.i(TAG, "Tasker trigger accepted - starting headless worker")
+    }
+    
+    private fun startListener(context: Context) {
+        // REPLACE ensures only one instance runs - terminates any existing instance
+        val workRequest = OneTimeWorkRequestBuilder<ConnectIQQueryWorker>().build()
         
-        val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.NOT_REQUIRED)
-            .setRequiresBatteryNotLow(false)
-            .setRequiresDeviceIdle(false)
-            .setRequiresCharging(false)
-            .build()
-        
-        val workRequest = OneTimeWorkRequestBuilder<ConnectIQQueryWorker>()
-            .setConstraints(constraints)
-            .build()
-            
         WorkManager.getInstance(context.applicationContext)
             .enqueueUniqueWork(UNIQUE_WORK, ExistingWorkPolicy.REPLACE, workRequest)
             
-        Log.i(TAG, "Worker enqueued: $UNIQUE_WORK")
+        Log.i(TAG, "Worker enqueued")
+    }
+    
+    private fun stopListener(context: Context) {
+        // Cancel all work and terminate
+        WorkManager.getInstance(context.applicationContext)
+            .cancelUniqueWork(UNIQUE_WORK)
+            
+        Log.i(TAG, "Worker cancelled")
+        
+        // Also send termination message
+        sendMessage(context, "terminating|Stopped by user")
+    }
+    
+    private fun sendMessage(context: Context, message: String) {
+        val intent = Intent(ACTION_MESSAGE).apply {
+            putExtra(EXTRA_MESSAGE, message)
+        }
+        context.sendBroadcast(intent)
     }
 }

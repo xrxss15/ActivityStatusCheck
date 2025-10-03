@@ -1,26 +1,17 @@
 package net.xrxss15
 
-import android.app.AlarmManager
-import android.app.PendingIntent
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
-import android.os.Build
-import android.os.SystemClock
 import androidx.work.Worker
 import androidx.work.WorkerParameters
-import org.json.JSONObject
-import org.json.JSONArray
+import com.garmin.android.connectiq.IQDevice
 import java.text.SimpleDateFormat
 import java.util.*
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Background Worker for Headless ConnectIQ Operations - Passive Listener
+ * ConnectIQ Query Worker - Continuous Message Listener
+ * 
+ * Runs indefinitely listening for messages from Garmin devices.
+ * Monitors device connection changes and forwards all messages to Tasker.
  */
 class ConnectIQQueryWorker(
     appContext: Context,
@@ -28,439 +19,145 @@ class ConnectIQQueryWorker(
 ) : Worker(appContext, workerParams) {
 
     companion object {
-        private const val LISTEN_TIMEOUT_MS = 5 * 60 * 1000L
-        private const val TIMEOUT_ACTION = "net.xrxss15.TIMEOUT_ACTION"
-        private const val TAG = "ActStatusWorker"
+        private const val TAG = "ConnectIQWorker"
+        private const val DEVICE_CHECK_INTERVAL_MS = 5000L // Check devices every 5 seconds
     }
 
     private val connectIQService = ConnectIQService.getInstance()
-    private val startTime = System.currentTimeMillis()
-    
-    private val messageReceived = AtomicBoolean(false)
-    private val receivedMessage = AtomicReference<String>()
-    private val receivedDevice = AtomicReference<String>()
-    private val messageLatch = CountDownLatch(1)
-    
-    private var timeoutPendingIntent: PendingIntent? = null
-    private var timeoutReceiver: BroadcastReceiver? = null
+    private var lastDeviceList: List<IQDevice> = emptyList()
+    private var isRunning = true
 
     private fun ts(): String = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
     
-    private fun logInfo(category: String, message: String) {
-        val logMsg = "[${ts()}] ℹ️ [WORKER.$category] $message"
+    private fun log(message: String) {
+        val logMsg = "[${ts()}] $message"
         connectIQService.log(logMsg)
         android.util.Log.i(TAG, logMsg)
-    }
-    
-    private fun logSuccess(category: String, message: String) {
-        val logMsg = "[${ts()}] ✅ [WORKER.$category] $message" 
-        connectIQService.log(logMsg)
-        android.util.Log.i(TAG, logMsg)
-    }
-    
-    private fun logError(category: String, message: String) {
-        val logMsg = "[${ts()}] ❌ [WORKER.$category] $message"
-        connectIQService.log(logMsg)
-        android.util.Log.e(TAG, logMsg)
-    }
-    
-    private fun logWarning(category: String, message: String) {
-        val logMsg = "[${ts()}] ⚠️ [WORKER.$category] $message"
-        connectIQService.log(logMsg)
-        android.util.Log.w(TAG, logMsg)
     }
 
     override fun doWork(): Result {
         val ctx = applicationContext
         
         try {
-            logInfo("STARTUP", "HEADLESS WORKER - PASSIVE MODE")
-            logInfo("STARTUP", "Listening for CIQ messages (5 min timeout)")
+            log("Starting Garmin listener")
             
-            if (!initializeConnectIQ(ctx)) {
-                return Result.success()
+            // Initialize SDK
+            if (!initializeSDK(ctx)) {
+                sendMessage(ctx, "terminating|SDK initialization failed")
+                return Result.failure()
             }
             
-            val devices = discoverDevices(ctx)
-            if (devices == null) {
-                return Result.success()
+            // Get initial device list
+            lastDeviceList = connectIQService.getConnectedRealDevices()
+            sendDeviceListMessage(ctx, lastDeviceList)
+            
+            // Register message callback
+            connectIQService.setMessageCallback { payload, deviceName, _ ->
+                log("Message from $deviceName: $payload")
+                sendMessage(ctx, "message_received|$deviceName|$payload")
             }
             
-            if (devices.isEmpty()) {
-                reportNoDevicesAndTerminateApp(ctx)
-                return Result.success()
-            }
+            // Register listeners
+            connectIQService.registerListenersForAllDevices()
+            log("Listeners registered - running continuously")
             
-            reportDevicesFound(ctx, devices)
+            // Run continuously, checking for device changes
+            runContinuously(ctx)
             
-            if (!registerPassiveListeners(ctx)) {
-                return Result.success()
-            }
-            
-            val messageResult = waitForMessageWithTimeout(ctx)
-            
-            reportFinalResultAndTerminateApp(ctx, messageResult, devices)
-            
-            logSuccess("COMPLETION", "Worker completed")
+            log("Worker stopped")
             return Result.success()
             
         } catch (e: Exception) {
-            logError("EXCEPTION", "Worker failed: ${e.message}")
-            reportErrorAndTerminateApp(ctx, "Worker exception: ${e.message}")
+            log("ERROR: ${e.message}")
+            sendMessage(ctx, "terminating|Worker exception: ${e.message}")
             return Result.failure()
         }
     }
     
-    private fun initializeConnectIQ(ctx: Context): Boolean {
-        logInfo("INIT", "Initializing SDK...")
+    private fun initializeSDK(ctx: Context): Boolean {
+        log("Initializing ConnectIQ SDK...")
         
         if (!connectIQService.hasRequiredPermissions(ctx)) {
-            logError("INIT", "Missing permissions")
-            reportErrorAndTerminateApp(ctx, "Missing permissions")
+            log("ERROR: Missing permissions")
             return false
         }
         
-        try {
-            val initResult = connectIQService.initializeForWorker(ctx)
-            if (!initResult) {
-                logError("INIT", "SDK init failed")
-                reportErrorAndTerminateApp(ctx, "SDK init failed")
-                return false
-            }
-            
-            logSuccess("INIT", "SDK ready")
-            return true
-            
-        } catch (e: Exception) {
-            logError("INIT", "Init exception: ${e.message}")
-            reportErrorAndTerminateApp(ctx, "Init error: ${e.message}")
-            return false
-        }
-    }
-    
-    private fun discoverDevices(ctx: Context): List<com.garmin.android.connectiq.IQDevice>? {
-        logInfo("DISCOVERY", "Discovering devices...")
-        
-        try {
-            val devices = connectIQService.getConnectedRealDevices()
-            logSuccess("DISCOVERY", "Found ${devices.size} device(s)")
-            
-            devices.forEach { device ->
-                logInfo("DISCOVERY", "  • ${device.friendlyName}")
-            }
-            
-            return devices
-            
-        } catch (e: Exception) {
-            logError("DISCOVERY", "Discovery failed: ${e.message}")
-            reportErrorAndTerminateApp(ctx, "Discovery error: ${e.message}")
-            return null
-        }
-    }
-    
-    private fun reportNoDevicesAndTerminateApp(ctx: Context) {
-        logWarning("NO_DEVICES", "No devices - terminating")
-        
-        val payload = JSONObject().apply {
-            put("stage", ActivityStatusCheckReceiver.STAGE_NO_DEVICES)
-            put("timestamp", ts())
-            put("device_count", 0)
-            put("devices", JSONArray())
-            put("message", "No connected devices")
-            put("terminated", true)
-            put("headless_mode", true)
-        }
-        
-        sendResponseAndTerminateApp(ctx, ActivityStatusCheckReceiver.STAGE_NO_DEVICES, false, payload.toString())
-    }
-    
-    private fun reportDevicesFound(ctx: Context, devices: List<com.garmin.android.connectiq.IQDevice>) {
-        logSuccess("DEVICES", "Reporting ${devices.size} device(s)")
-        
-        val devicesArray = JSONArray()
-        devices.forEach { device ->
-            devicesArray.put(JSONObject().apply {
-                put("name", device.friendlyName ?: "Unknown")
-                put("id", device.deviceIdentifier.toString())
-                put("status", device.status.toString())
-            })
-        }
-        
-        val payload = JSONObject().apply {
-            put("stage", ActivityStatusCheckReceiver.STAGE_DEVICES_FOUND)
-            put("timestamp", ts())
-            put("device_count", devices.size)
-            put("devices", devicesArray)
-            put("message", "Found ${devices.size} device(s)")
-            put("terminated", false)
-            put("headless_mode", true)
-        }
-        
-        sendResponse(ctx, ActivityStatusCheckReceiver.STAGE_DEVICES_FOUND, true, payload.toString(), false)
-    }
-    
-    private fun registerPassiveListeners(ctx: Context): Boolean {
-        logInfo("LISTENERS", "Registering listeners...")
-        
-        try {
-            connectIQService.setMessageCallback { payload, deviceName, _ ->
-                if (!messageReceived.getAndSet(true)) {
-                    logSuccess("MESSAGE", "Received from $deviceName")
-                    receivedMessage.set(payload)
-                    receivedDevice.set(deviceName)
-                    messageLatch.countDown()
-                    cancelTimeoutAlarm(ctx)
-                }
-            }
-            
-            connectIQService.registerListenersForAllDevices()
-            
-            logSuccess("LISTENERS", "Listeners registered")
-            
-            val payload = JSONObject().apply {
-                put("stage", "listeners_registered")
-                put("timestamp", ts())
-                put("message", "Listening for messages")
-                put("terminated", false)
-                put("headless_mode", true)
-            }
-            
-            sendResponse(ctx, "listeners_registered", true, payload.toString(), false)
-            return true
-            
-        } catch (e: Exception) {
-            logError("LISTENERS", "Registration failed: ${e.message}")
-            reportErrorAndTerminateApp(ctx, "Listener error: ${e.message}")
-            return false
-        }
-    }
-    
-    private data class MessageResult(
-        val success: Boolean,
-        val type: String,
-        val message: String = "",
-        val deviceName: String = "",
-        val error: String = ""
-    )
-    
-    private fun waitForMessageWithTimeout(ctx: Context): MessageResult {
-        logInfo("WAIT", "Waiting for messages (5 min)...")
-        
-        setupAlarmManagerTimeout(ctx)
-        
-        val waitStartTime = System.currentTimeMillis()
-        
-        try {
-            messageLatch.await(LISTEN_TIMEOUT_MS + 5000, TimeUnit.MILLISECONDS)
-            
-            val waitDuration = System.currentTimeMillis() - waitStartTime
-            logInfo("WAIT", "Wait completed after ${waitDuration / 1000}s")
-            
-            if (messageReceived.get()) {
-                val msg = receivedMessage.get() ?: ""
-                val dev = receivedDevice.get() ?: "Unknown"
-                logSuccess("WAIT", "Message received from $dev")
-                cancelTimeoutAlarm(ctx)
-                return MessageResult(true, "message", msg, dev)
+        return try {
+            val result = connectIQService.initializeForWorker(ctx)
+            if (result) {
+                log("SDK ready")
             } else {
-                logWarning("WAIT", "Timeout - no messages")
-                return MessageResult(false, "timeout", error = "No messages within 5 minutes")
+                log("ERROR: SDK init failed")
             }
-            
+            result
         } catch (e: Exception) {
-            logError("WAIT", "Wait failed: ${e.message}")
-            cancelTimeoutAlarm(ctx)
-            return MessageResult(false, "error", error = "Wait error: ${e.message}")
-        } finally {
-            cleanupTimeout(ctx)
+            log("ERROR: SDK init exception: ${e.message}")
+            false
         }
     }
     
-    private fun setupAlarmManagerTimeout(ctx: Context) {
-        try {
-            val alarmManager = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-            
-            timeoutReceiver = object : BroadcastReceiver() {
-                override fun onReceive(context: Context?, intent: Intent?) {
-                    if (intent?.action == TIMEOUT_ACTION) {
-                        logWarning("TIMEOUT", "Alarm fired")
-                        if (!messageReceived.getAndSet(true)) {
-                            messageLatch.countDown()
-                        }
-                    }
+    private fun runContinuously(ctx: Context) {
+        while (isRunning && !isStopped) {
+            try {
+                // Check for device changes
+                val currentDevices = connectIQService.getConnectedRealDevices()
+                
+                if (hasDeviceListChanged(currentDevices)) {
+                    log("Device list changed - updating")
+                    lastDeviceList = currentDevices
+                    sendDeviceListMessage(ctx, currentDevices)
+                    
+                    // Re-register listeners for new device list
+                    connectIQService.registerListenersForAllDevices()
                 }
+                
+                // Sleep before next check
+                Thread.sleep(DEVICE_CHECK_INTERVAL_MS)
+                
+            } catch (e: InterruptedException) {
+                log("Worker interrupted - stopping")
+                isRunning = false
+            } catch (e: Exception) {
+                log("ERROR in device check: ${e.message}")
             }
-            
-            val filter = IntentFilter(TIMEOUT_ACTION)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                ctx.registerReceiver(timeoutReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-            } else {
-                ctx.registerReceiver(timeoutReceiver, filter)
-            }
-            
-            val timeoutIntent = Intent(TIMEOUT_ACTION).apply {
-                setPackage(ctx.packageName)
-            }
-            
-            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            } else {
-                PendingIntent.FLAG_UPDATE_CURRENT
-            }
-            
-            timeoutPendingIntent = PendingIntent.getBroadcast(ctx, 12345, timeoutIntent, flags)
-            
-            val triggerTime = SystemClock.elapsedRealtime() + LISTEN_TIMEOUT_MS
-            alarmManager.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerTime, timeoutPendingIntent!!)
-            
-            logSuccess("TIMEOUT", "Alarm set for 5 min")
-            
-        } catch (e: Exception) {
-            logError("TIMEOUT", "Alarm setup failed: ${e.message}")
         }
-    }
-    
-    private fun cancelTimeoutAlarm(ctx: Context) {
-        try {
-            timeoutPendingIntent?.let { pendingIntent ->
-                val alarmManager = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-                alarmManager.cancel(pendingIntent)
-            }
-        } catch (e: Exception) {
-            // Ignore
-        }
-    }
-    
-    private fun cleanupTimeout(ctx: Context) {
-        try {
-            cancelTimeoutAlarm(ctx)
-            timeoutReceiver?.let { receiver ->
-                try {
-                    ctx.unregisterReceiver(receiver)
-                } catch (e: IllegalArgumentException) {
-                    // Already unregistered
-                }
-                timeoutReceiver = null
-            }
-            timeoutPendingIntent = null
-        } catch (e: Exception) {
-            // Ignore
-        }
-    }
-    
-    private fun reportFinalResultAndTerminateApp(ctx: Context, result: MessageResult, devices: List<com.garmin.android.connectiq.IQDevice>) {
-        when (result.type) {
-            "message" -> reportMessageReceivedAndTerminateApp(ctx, result, devices)
-            "timeout" -> reportTimeoutAndTerminateApp(ctx, devices)
-            "error" -> reportErrorAndTerminateApp(ctx, result.error)
-        }
-    }
-    
-    private fun reportMessageReceivedAndTerminateApp(ctx: Context, result: MessageResult, devices: List<com.garmin.android.connectiq.IQDevice>) {
-        logSuccess("FINAL", "Message received - terminating")
         
-        val devicesArray = JSONArray()
+        log("Worker loop exited")
+    }
+    
+    private fun hasDeviceListChanged(newList: List<IQDevice>): Boolean {
+        if (newList.size != lastDeviceList.size) return true
+        
+        val newIds = newList.map { it.deviceIdentifier }.toSet()
+        val oldIds = lastDeviceList.map { it.deviceIdentifier }.toSet()
+        
+        return newIds != oldIds
+    }
+    
+    private fun sendDeviceListMessage(ctx: Context, devices: List<IQDevice>) {
+        // Format: devices|COUNT|NAME1|NAME2|...
+        val parts = mutableListOf<String>()
+        parts.add("devices")
+        parts.add(devices.size.toString())
         devices.forEach { device ->
-            devicesArray.put(JSONObject().apply {
-                put("name", device.friendlyName ?: "Unknown")
-                put("id", device.deviceIdentifier.toString())
-            })
+            parts.add(device.friendlyName ?: "Unknown")
         }
         
-        // Parse message: EVENT|TIMESTAMP|ACTIVITY|DURATION
-        val parts = result.message.split("|")
-        
-        val payload = JSONObject().apply {
-            put("stage", ActivityStatusCheckReceiver.STAGE_RESPONSE_RECEIVED)
-            put("timestamp", ts())
-            put("device_count", devices.size)
-            put("devices", devicesArray)
-            put("responding_device", result.deviceName)
-            put("message", "Activity event received")
-            put("raw_message", result.message)
-            put("terminated", true)
-            put("headless_mode", true)
-            
-            // Correctly parse: EVENT|TIMESTAMP|ACTIVITY|DURATION
-            if (parts.size >= 4) {
-                put("event", parts[0])              // ACTIVITY_STARTED or ACTIVITY_STOPPED
-                put("event_timestamp", parts[1])    // Unix timestamp
-                put("activity", parts[2])           // Activity name as string
-                put("duration", parts[3])           // Duration in seconds
-            }
-            
-            put("total_runtime_ms", System.currentTimeMillis() - startTime)
-        }
-        
-        sendResponseAndTerminateApp(ctx, ActivityStatusCheckReceiver.STAGE_RESPONSE_RECEIVED, true, payload.toString())
+        val message = parts.joinToString("|")
+        log("Sending device list: $message")
+        sendMessage(ctx, message)
     }
     
-    private fun reportTimeoutAndTerminateApp(ctx: Context, devices: List<com.garmin.android.connectiq.IQDevice>) {
-        logWarning("TIMEOUT", "Timeout - terminating")
-        
-        val devicesArray = JSONArray()
-        devices.forEach { device ->
-            devicesArray.put(JSONObject().apply {
-                put("name", device.friendlyName ?: "Unknown")
-                put("id", device.deviceIdentifier.toString())
-            })
+    private fun sendMessage(ctx: Context, message: String) {
+        val intent = android.content.Intent(ActivityStatusCheckReceiver.ACTION_MESSAGE).apply {
+            putExtra(ActivityStatusCheckReceiver.EXTRA_MESSAGE, message)
         }
-        
-        val payload = JSONObject().apply {
-            put("stage", ActivityStatusCheckReceiver.STAGE_TIMEOUT)
-            put("timestamp", ts())
-            put("device_count", devices.size)
-            put("devices", devicesArray)
-            put("timeout_seconds", LISTEN_TIMEOUT_MS / 1000)
-            put("message", "No messages within 5 minutes")
-            put("terminated", true)
-            put("headless_mode", true)
-            put("total_runtime_ms", System.currentTimeMillis() - startTime)
-        }
-        
-        sendResponseAndTerminateApp(ctx, ActivityStatusCheckReceiver.STAGE_TIMEOUT, false, payload.toString())
+        ctx.sendBroadcast(intent)
     }
     
-    private fun reportErrorAndTerminateApp(ctx: Context, error: String) {
-        logError("ERROR", "Error: $error")
-        
-        val payload = JSONObject().apply {
-            put("stage", ActivityStatusCheckReceiver.STAGE_ERROR)
-            put("timestamp", ts())
-            put("error", error)
-            put("message", "Worker error")
-            put("terminated", true)
-            put("headless_mode", true)
-            put("total_runtime_ms", System.currentTimeMillis() - startTime)
-        }
-        
-        sendResponseAndTerminateApp(ctx, ActivityStatusCheckReceiver.STAGE_ERROR, false, payload.toString())
-    }
-    
-    private fun sendResponse(ctx: Context, stage: String, success: Boolean, payload: String, terminated: Boolean) {
-        val responseIntent = Intent(ActivityStatusCheckReceiver.ACTION_RESPONSE).apply {
-            putExtra(ActivityStatusCheckReceiver.EXTRA_STAGE, stage)
-            putExtra(ActivityStatusCheckReceiver.EXTRA_SUCCESS, success)
-            putExtra(ActivityStatusCheckReceiver.EXTRA_PAYLOAD, payload)
-            putExtra(ActivityStatusCheckReceiver.EXTRA_TIMESTAMP, ts())
-            putExtra(ActivityStatusCheckReceiver.EXTRA_TERMINATED, terminated)
-            putExtra(ActivityStatusCheckReceiver.EXTRA_HEADLESS, true)
-        }
-        
-        ctx.sendBroadcast(responseIntent)
-    }
-    
-    private fun sendResponseAndTerminateApp(ctx: Context, stage: String, success: Boolean, payload: String) {
-        logWarning("TERMINATION", "Terminating app")
-        
-        sendResponse(ctx, stage, success, payload, true)
-        
-        try {
-            Thread.sleep(100)
-        } catch (e: InterruptedException) {
-            // Ignore
-        }
-        
-        System.exit(0)
+    override fun onStopped() {
+        super.onStopped()
+        log("Worker stopped by WorkManager")
+        isRunning = false
     }
 }

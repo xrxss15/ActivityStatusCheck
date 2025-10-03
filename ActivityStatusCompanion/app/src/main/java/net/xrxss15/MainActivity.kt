@@ -16,10 +16,7 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * MainActivity - Passive Message Listener UI
- * 
- * Displays incoming messages from CIQ app in real-time.
- * Message format: EVENT|TIMESTAMP|ACTIVITY|DURATION
+ * MainActivity - Debug UI
  */
 class MainActivity : Activity() {
 
@@ -37,17 +34,11 @@ class MainActivity : Activity() {
 
     private fun ts(): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
     
-    /**
-     * Formats Unix timestamp to dd.MM.yyyy HH:mm:ss
-     */
     private fun formatTimestamp(timestampMillis: Long): String {
         val date = Date(timestampMillis)
         return SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault()).format(date)
     }
     
-    /**
-     * Formats duration in seconds to readable format
-     */
     private fun formatDuration(seconds: Int): String {
         val hours = seconds / 3600
         val minutes = (seconds % 3600) / 60
@@ -68,7 +59,7 @@ class MainActivity : Activity() {
             setPadding(16, 16, 16, 16)
 
             val header = TextView(this@MainActivity).apply {
-                text = "Activity Timer Companion\nPassive Listener"
+                text = "Garmin Listener\nDebug Mode"
                 textSize = 16f
                 setTypeface(null, android.graphics.Typeface.BOLD)
             }
@@ -94,11 +85,11 @@ class MainActivity : Activity() {
                 setPadding(0, 0, 0, 8)
             }
             copyBtn = Button(this@MainActivity).apply { 
-                text = "Copy Log"
+                text = "Copy"
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             clearBtn = Button(this@MainActivity).apply { 
-                text = "Clear Log"
+                text = "Clear"
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             row2.addView(copyBtn); row2.addView(clearBtn)
@@ -122,15 +113,14 @@ class MainActivity : Activity() {
 
         connectIQService.registerLogSink { line -> appendLog(line) }
         
-        // Register message callback with proper parsing
         connectIQService.setMessageCallback { payload, deviceName, timestampMillis ->
             appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            appendLog("📱 MESSAGE RECEIVED")
+            appendLog("📱 MESSAGE")
             appendLog("Device: $deviceName")
-            appendLog("Received: ${formatTimestamp(timestampMillis)}")
+            appendLog("Time: ${formatTimestamp(timestampMillis)}")
             appendLog("")
             
-            // Parse message: EVENT|TIMESTAMP|ACTIVITY|DURATION
+            // Parse: EVENT|TIMESTAMP|ACTIVITY|DURATION
             val parts = payload.split("|")
             if (parts.size >= 4) {
                 val event = parts[0]
@@ -138,30 +128,26 @@ class MainActivity : Activity() {
                 val activity = parts[2]
                 val duration = parts[3]
                 
-                // Display event type
                 val eventDisplay = when (event) {
-                    "ACTIVITY_STARTED" -> "🏃 ACTIVITY STARTED"
-                    "ACTIVITY_STOPPED" -> "⏹️  ACTIVITY STOPPED"
+                    "ACTIVITY_STARTED" -> "🏃 STARTED"
+                    "ACTIVITY_STOPPED" -> "⏹️  STOPPED"
                     else -> event
                 }
                 appendLog(eventDisplay)
                 
-                // Convert and display event timestamp
                 try {
                     val eventTime = eventTimestamp.toLong() * 1000
-                    appendLog("Event Time: ${formatTimestamp(eventTime)}")
+                    appendLog("Event: ${formatTimestamp(eventTime)}")
                 } catch (e: Exception) {
-                    appendLog("Event Time: $eventTimestamp")
+                    appendLog("Event: $eventTimestamp")
                 }
                 
-                // Display activity type
                 appendLog("Activity: $activity")
                 
-                // Display duration (formatted for STOP events)
                 if (event == "ACTIVITY_STOPPED") {
                     try {
-                        val durationSeconds = duration.toInt()
-                        appendLog("Duration: ${formatDuration(durationSeconds)}")
+                        val dur = duration.toInt()
+                        appendLog("Duration: ${formatDuration(dur)}")
                     } catch (e: Exception) {
                         appendLog("Duration: $duration")
                     }
@@ -169,7 +155,7 @@ class MainActivity : Activity() {
                     appendLog("Duration: $duration")
                 }
             } else {
-                appendLog("Raw message: $payload")
+                appendLog("Raw: $payload")
             }
             
             appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -196,27 +182,23 @@ class MainActivity : Activity() {
         copyBtn.setOnClickListener {
             val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
             cm.setPrimaryClip(android.content.ClipData.newPlainText("log", logView.text))
-            Toast.makeText(this, "Log copied", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show()
         }
 
         clearBtn.setOnClickListener { 
             logView.text = ""
-            appendLog("Log cleared at ${ts()}")
         }
 
         appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        appendLog("Activity Timer Companion")
-        appendLog("PASSIVE LISTENER MODE")
+        appendLog("Garmin Listener - Debug Mode")
         appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        appendLog("Waiting for activity events...")
-        appendLog("")
     }
 
     private fun reloadDevices() {
         Thread {
             val ds = connectIQService.getConnectedRealDevices()
             val labels = if (ds.isEmpty()) {
-                listOf("No devices found")
+                listOf("No devices")
             } else {
                 ds.map { "${it.friendlyName} (${it.deviceIdentifier})" }
             }
@@ -229,12 +211,10 @@ class MainActivity : Activity() {
                 devicesSpinner.adapter = adapter
                 
                 if (devices.isEmpty()) {
-                    appendLog("[${ts()}] ⚠️ No devices connected")
+                    appendLog("[${ts()}] ⚠️ No devices")
                 } else {
-                    appendLog("[${ts()}] ✅ ${devices.size} device(s) found:")
-                    devices.forEach { device ->
-                        appendLog("  • ${device.friendlyName}")
-                    }
+                    appendLog("[${ts()}] ✅ ${devices.size} device(s):")
+                    devices.forEach { appendLog("  • ${it.friendlyName}") }
                 }
             }
         }.start()
@@ -263,14 +243,13 @@ class MainActivity : Activity() {
             perms.add(Manifest.permission.BLUETOOTH_CONNECT)
         }
         ActivityCompat.requestPermissions(this, perms.toTypedArray(), 100)
-        appendLog("[${ts()}] Requesting permissions...")
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 100) {
             val allGranted = grantResults.all { it == PackageManager.PERMISSION_GRANTED }
-            appendLog("[${ts()}] Permissions ${if (allGranted) "✅ Granted" else "❌ Denied"}")
+            appendLog("[${ts()}] ${if (allGranted) "✅ Granted" else "❌ Denied"}")
             
             if (allGranted) {
                 Thread {

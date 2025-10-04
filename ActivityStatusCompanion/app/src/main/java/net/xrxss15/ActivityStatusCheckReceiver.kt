@@ -70,6 +70,7 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
         try {
             val intent = Intent(ACTION_MESSAGE).apply {
                 putExtra(EXTRA_MESSAGE, message)
+                setPackage("net.xrxss15")  // ← FIXED: Make explicit broadcast
             }
             context.sendBroadcast(intent)
             Log.d(TAG, "Message broadcast sent: $message")

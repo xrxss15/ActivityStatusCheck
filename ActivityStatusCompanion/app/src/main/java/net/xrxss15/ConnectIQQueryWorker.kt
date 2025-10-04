@@ -125,6 +125,7 @@ class ConnectIQQueryWorker(
         try {
             val intent = Intent(ActivityStatusCheckReceiver.ACTION_MESSAGE).apply {
                 putExtra(ActivityStatusCheckReceiver.EXTRA_MESSAGE, message)
+                setPackage("net.xrxss15")  // ← FIXED: Make explicit broadcast
             }
             applicationContext.sendBroadcast(intent)
             Log.d(TAG, "Broadcast sent: ${message.take(50)}...")

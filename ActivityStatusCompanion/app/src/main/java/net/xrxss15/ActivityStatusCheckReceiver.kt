@@ -20,9 +20,6 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        Log.i(TAG, "========== BROADCAST RECEIVED ==========")
-        Log.i(TAG, "Action: ${intent.action}")
-        
         when (intent.action) {
             ACTION_START -> {
                 Log.i(TAG, "Starting listener")
@@ -32,22 +29,14 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
                 Log.i(TAG, "Stopping listener")
                 stopListener(context)
             }
-            else -> {
-                Log.w(TAG, "Unknown action: ${intent.action}")
-            }
         }
     }
     
     private fun startListener(context: Context) {
         try {
-            Log.d(TAG, "Creating worker request")
             val workRequest = OneTimeWorkRequestBuilder<ConnectIQQueryWorker>().build()
-            
-            Log.d(TAG, "Enqueuing worker")
             WorkManager.getInstance(context.applicationContext)
                 .enqueueUniqueWork(UNIQUE_WORK, ExistingWorkPolicy.REPLACE, workRequest)
-            
-            Log.i(TAG, "Worker enqueued successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start worker", e)
         }
@@ -55,12 +44,9 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
     
     private fun stopListener(context: Context) {
         try {
-            Log.d(TAG, "Cancelling worker")
             WorkManager.getInstance(context.applicationContext)
                 .cancelUniqueWork(UNIQUE_WORK)
-            
             sendMessage(context, "terminating|Stopped by user")
-            Log.i(TAG, "Worker cancelled")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to stop worker", e)
         }
@@ -70,10 +56,9 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
         try {
             val intent = Intent(ACTION_MESSAGE).apply {
                 putExtra(EXTRA_MESSAGE, message)
-                setPackage("net.xrxss15")  // ← FIXED: Make explicit broadcast
+                setPackage("net.xrxss15")
             }
             context.sendBroadcast(intent)
-            Log.d(TAG, "Message broadcast sent: $message")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send message", e)
         }

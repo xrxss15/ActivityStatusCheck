@@ -60,21 +60,17 @@ class ConnectIQService private constructor() {
             needs.add(android.Manifest.permission.BLUETOOTH_SCAN)
             needs.add(android.Manifest.permission.BLUETOOTH_CONNECT)
         }
-        
-        val result = needs.all {
+        return needs.all {
             ContextCompat.checkSelfPermission(ctx, it) == PackageManager.PERMISSION_GRANTED
         }
-        Log.d(TAG, "Permissions check: $result")
-        return result
     }
 
     fun initializeForWorker(context: Context): Boolean {
         if (initialized.get()) {
-            Log.d(TAG, "SDK already initialized")
             return true
         }
 
-        Log.i(TAG, "Initializing SDK...")
+        Log.i(TAG, "Initializing SDK")
         appContext = context.applicationContext
         val ciq = ConnectIQ.getInstance(appContext, ConnectIQ.IQConnectType.WIRELESS)
         connectIQ = ciq
@@ -84,10 +80,8 @@ class ConnectIQService private constructor() {
         
         mainHandler.post {
             try {
-                Log.d(TAG, "Calling SDK initialize on main thread")
                 ciq.initialize(appContext, false, object : ConnectIQListener {
                     override fun onSdkReady() {
-                        Log.i(TAG, "SDK ready")
                         initSuccess.set(true)
                         initialized.set(true)
                         initLatch.countDown()
@@ -100,7 +94,6 @@ class ConnectIQService private constructor() {
                     }
 
                     override fun onSdkShutDown() {
-                        Log.i(TAG, "SDK shut down")
                         initialized.set(false)
                     }
                 })
@@ -111,42 +104,26 @@ class ConnectIQService private constructor() {
             }
         }
         
-        Log.d(TAG, "Waiting for SDK initialization...")
         return try {
             val completed = initLatch.await(INIT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-            if (!completed) {
-                Log.e(TAG, "SDK init timeout")
-                return false
-            }
-            
-            if (initSuccess.get()) {
-                Log.i(TAG, "SDK initialized successfully")
+            if (completed && initSuccess.get()) {
                 registerListenersForAllDevices()
                 true
             } else {
-                Log.e(TAG, "SDK initialization failed")
                 false
             }
         } catch (e: InterruptedException) {
-            Log.e(TAG, "SDK init interrupted", e)
             false
         }
     }
 
     fun getConnectedRealDevices(): List<IQDevice> {
-        val ciq = connectIQ
-        if (ciq == null) {
-            Log.w(TAG, "SDK not initialized - cannot get devices")
-            return emptyList()
-        }
+        val ciq = connectIQ ?: return emptyList()
         
         return try {
             val devices = ciq.connectedDevices
-            val realDevices = devices?.filter { isRealDevice(it) } ?: emptyList()
-            Log.d(TAG, "Found ${realDevices.size} real device(s)")
-            realDevices
+            devices?.filter { isRealDevice(it) } ?: emptyList()
         } catch (e: Exception) {
-            Log.e(TAG, "Error getting devices", e)
             emptyList()
         }
     }
@@ -157,13 +134,8 @@ class ConnectIQService private constructor() {
     }
 
     fun registerListenersForAllDevices() {
-        val ciq = connectIQ
-        if (ciq == null) {
-            Log.w(TAG, "Cannot register listeners - SDK not initialized")
-            return
-        }
+        val ciq = connectIQ ?: return
         
-        Log.d(TAG, "Waiting for device discovery...")
         try { 
             Thread.sleep(DISCOVERY_DELAY_MS) 
         } catch (_: InterruptedException) {
@@ -171,21 +143,14 @@ class ConnectIQService private constructor() {
         }
 
         val devices = getConnectedRealDevices()
-        if (devices.isEmpty()) {
-            Log.w(TAG, "No devices to register")
-            return
-        }
-        
-        Log.i(TAG, "Registering listeners for ${devices.size} device(s)")
+        if (devices.isEmpty()) return
+
         devices.forEach { device ->
-            Log.d(TAG, "Registering: ${device.friendlyName}")
             registerDeviceListeners(ciq, device)
         }
-        Log.i(TAG, "All listeners registered")
     }
     
     private fun registerDeviceListeners(ciq: ConnectIQ, device: IQDevice) {
-        // FIXED: Capture device name at registration time
         val capturedDeviceName = device.friendlyName?.takeIf { it.isNotBlank() } ?: "Unknown Device"
         val deviceId = device.deviceIdentifier
         
@@ -198,18 +163,14 @@ class ConnectIQService private constructor() {
                     if (!messages.isNullOrEmpty()) {
                         val payload = messages.joinToString("|") { it.toString() }
                         val timestamp = System.currentTimeMillis()
-                        
-                        // FIXED: Use captured device name (callback parameter is unreliable)
                         val deviceName = dev.friendlyName?.takeIf { it.isNotBlank() } ?: capturedDeviceName
                         
-                        Log.d(TAG, "Message from $deviceName: $payload")
                         messageCallback?.invoke(payload, deviceName, timestamp)
                     }
                 }
                 
                 ciq.registerForAppEvents(device, app, appListener)
                 appListeners[appKey] = appListener
-                Log.d(TAG, "App listener registered for $capturedDeviceName")
                 
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to register app listener", e)
@@ -219,11 +180,9 @@ class ConnectIQService private constructor() {
         val deviceKey = "$deviceId"
         if (!deviceListeners.containsKey(deviceKey)) {
             val listener = IQDeviceEventListener { _, status ->
-                Log.d(TAG, "Device status: $status")
                 when (status) {
                     IQDevice.IQDeviceStatus.CONNECTED,
                     IQDevice.IQDeviceStatus.NOT_CONNECTED -> {
-                        Log.i(TAG, "Device connection state changed")
                         deviceChangeCallback?.invoke()
                     }
                     else -> {}
@@ -233,7 +192,6 @@ class ConnectIQService private constructor() {
             try {
                 ciq.registerForDeviceEvents(device, listener)
                 deviceListeners[deviceKey] = listener
-                Log.d(TAG, "Device listener registered for $capturedDeviceName")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to register device listener", e)
             }

@@ -78,7 +78,6 @@ class MainActivity : Activity() {
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
                         appendLog("[${ts()}] Starting listener...")
-                        // Explicit broadcast for START (to manifest receiver)
                         val intent = Intent(ActivityStatusCheckReceiver.ACTION_START).apply {
                             setPackage("net.xrxss15")
                         }
@@ -91,7 +90,6 @@ class MainActivity : Activity() {
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
                         appendLog("[${ts()}] Stopping listener...")
-                        // Explicit broadcast for STOP (to manifest receiver)
                         val intent = Intent(ActivityStatusCheckReceiver.ACTION_STOP).apply {
                             setPackage("net.xrxss15")
                         }

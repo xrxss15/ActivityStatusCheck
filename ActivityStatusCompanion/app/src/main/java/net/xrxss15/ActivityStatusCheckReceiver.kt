@@ -58,7 +58,6 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
             val intent = Intent(ACTION_MESSAGE).apply {
                 putExtra(EXTRA_MESSAGE, message)
                 addCategory(Intent.CATEGORY_DEFAULT)
-                // NO setPackage - allows Tasker to receive
             }
             context.sendBroadcast(intent)
         } catch (e: Exception) {

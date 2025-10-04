@@ -110,7 +110,6 @@ class ConnectIQQueryWorker(
             val intent = Intent(ActivityStatusCheckReceiver.ACTION_MESSAGE).apply {
                 putExtra(ActivityStatusCheckReceiver.EXTRA_MESSAGE, message)
                 addCategory(Intent.CATEGORY_DEFAULT)
-                // NO setPackage - allows Tasker to receive
             }
             applicationContext.sendBroadcast(intent)
         } catch (e: Exception) {

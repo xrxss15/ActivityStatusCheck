@@ -9,8 +9,7 @@ import androidx.work.WorkManager
 
 /**
  * Activity Status Check Receiver
- * 
- * Handles START and STOP intents for the Garmin message listener.
+ * Handles START and STOP intents for the Garmin message listener
  */
 class ActivityStatusCheckReceiver : BroadcastReceiver() {
 

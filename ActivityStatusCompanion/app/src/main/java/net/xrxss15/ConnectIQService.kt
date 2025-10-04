@@ -185,7 +185,11 @@ class ConnectIQService private constructor() {
     }
     
     private fun registerDeviceListeners(ciq: ConnectIQ, device: IQDevice) {
-        val appKey = "${device.deviceIdentifier}:$APP_UUID"
+        // FIXED: Capture device name at registration time
+        val capturedDeviceName = device.friendlyName?.takeIf { it.isNotBlank() } ?: "Unknown Device"
+        val deviceId = device.deviceIdentifier
+        
+        val appKey = "${deviceId}:$APP_UUID"
         if (!appListeners.containsKey(appKey)) {
             try {
                 val app = IQApp(APP_UUID)
@@ -194,7 +198,9 @@ class ConnectIQService private constructor() {
                     if (!messages.isNullOrEmpty()) {
                         val payload = messages.joinToString("|") { it.toString() }
                         val timestamp = System.currentTimeMillis()
-                        val deviceName = dev.friendlyName?.takeIf { it.isNotBlank() } ?: "Unknown"
+                        
+                        // FIXED: Use captured device name (callback parameter is unreliable)
+                        val deviceName = dev.friendlyName?.takeIf { it.isNotBlank() } ?: capturedDeviceName
                         
                         Log.d(TAG, "Message from $deviceName: $payload")
                         messageCallback?.invoke(payload, deviceName, timestamp)
@@ -203,14 +209,14 @@ class ConnectIQService private constructor() {
                 
                 ciq.registerForAppEvents(device, app, appListener)
                 appListeners[appKey] = appListener
-                Log.d(TAG, "App listener registered for ${device.friendlyName}")
+                Log.d(TAG, "App listener registered for $capturedDeviceName")
                 
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to register app listener", e)
             }
         }
         
-        val deviceKey = "${device.deviceIdentifier}"
+        val deviceKey = "$deviceId"
         if (!deviceListeners.containsKey(deviceKey)) {
             val listener = IQDeviceEventListener { _, status ->
                 Log.d(TAG, "Device status: $status")
@@ -227,7 +233,7 @@ class ConnectIQService private constructor() {
             try {
                 ciq.registerForDeviceEvents(device, listener)
                 deviceListeners[deviceKey] = listener
-                Log.d(TAG, "Device listener registered for ${device.friendlyName}")
+                Log.d(TAG, "Device listener registered for $capturedDeviceName")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to register device listener", e)
             }

@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.widget.*
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -19,6 +20,10 @@ import java.util.Date
 import java.util.Locale
 
 class MainActivity : Activity() {
+
+    companion object {
+        private const val TAG = "GarminActivityListener.MainActivity"
+    }
 
     private lateinit var logView: TextView
     private lateinit var scroll: ScrollView
@@ -45,6 +50,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Log.i(TAG, "MainActivity created")
 
         createUI()
         registerBroadcastReceiver()
@@ -80,8 +86,13 @@ class MainActivity : Activity() {
                     text = "Start Listener"
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
+                        Log.i(TAG, "Start button clicked")
                         appendLog("[${ts()}] Starting listener...")
-                        sendBroadcast(Intent(ActivityStatusCheckReceiver.ACTION_START))
+                        val intent = Intent(ActivityStatusCheckReceiver.ACTION_START).apply {
+                            setPackage("net.xrxss15")
+                        }
+                        sendBroadcast(intent)
+                        Log.d(TAG, "START broadcast sent")
                     }
                 }
                 
@@ -89,8 +100,13 @@ class MainActivity : Activity() {
                     text = "Stop Listener"
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
+                        Log.i(TAG, "Stop button clicked")
                         appendLog("[${ts()}] Stopping listener...")
-                        sendBroadcast(Intent(ActivityStatusCheckReceiver.ACTION_STOP))
+                        val intent = Intent(ActivityStatusCheckReceiver.ACTION_STOP).apply {
+                            setPackage("net.xrxss15")
+                        }
+                        sendBroadcast(intent)
+                        Log.d(TAG, "STOP broadcast sent")
                     }
                 }
                 
@@ -138,10 +154,13 @@ class MainActivity : Activity() {
     }
 
     private fun registerBroadcastReceiver() {
+        Log.d(TAG, "Registering broadcast receiver")
         messageReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
+                Log.d(TAG, "Broadcast received: ${intent?.action}")
                 if (intent?.action == ActivityStatusCheckReceiver.ACTION_MESSAGE) {
                     val message = intent.getStringExtra(ActivityStatusCheckReceiver.EXTRA_MESSAGE)
+                    Log.d(TAG, "Message content: $message")
                     message?.let { handleGarminMessage(it) }
                 }
             }
@@ -153,15 +172,17 @@ class MainActivity : Activity() {
         } else {
             registerReceiver(messageReceiver, filter)
         }
+        Log.i(TAG, "Broadcast receiver registered")
     }
 
     private fun handleGarminMessage(message: String) {
         val parts = message.split("|")
         if (parts.isEmpty()) return
         
+        Log.d(TAG, "Handling message type: ${parts[0]}")
+        
         when (parts[0]) {
             "devices" -> {
-                // Format: devices|COUNT|NAME1|NAME2|...
                 if (parts.size >= 2) {
                     val count = parts[1].toIntOrNull() ?: 0
                     appendLog("[${ts()}] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -174,7 +195,6 @@ class MainActivity : Activity() {
             }
             
             "message_received" -> {
-                // Format: message_received|DEVICE|EVENT|TIMESTAMP|ACTIVITY|DURATION
                 if (parts.size >= 6) {
                     appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     appendLog("📱 MESSAGE")
@@ -208,7 +228,6 @@ class MainActivity : Activity() {
             }
             
             "terminating" -> {
-                // Format: terminating|REASON
                 if (parts.size >= 2) {
                     appendLog("[${ts()}] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     appendLog("[${ts()}] ⚠️ TERMINATING")
@@ -243,6 +262,7 @@ class MainActivity : Activity() {
         }
         ActivityCompat.requestPermissions(this, perms.toTypedArray(), 100)
         appendLog("[${ts()}] Requesting permissions...")
+        Log.i(TAG, "Requesting permissions")
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
@@ -250,16 +270,19 @@ class MainActivity : Activity() {
         if (requestCode == 100) {
             val allGranted = grantResults.all { it == PackageManager.PERMISSION_GRANTED }
             appendLog("[${ts()}] Permissions ${if (allGranted) "✅ Granted" else "❌ Denied"}")
+            Log.i(TAG, "Permissions result: ${if (allGranted) "granted" else "denied"}")
         }
     }
     
     override fun onDestroy() {
         super.onDestroy()
+        Log.i(TAG, "MainActivity destroyed")
         messageReceiver?.let {
             try {
                 unregisterReceiver(it)
+                Log.d(TAG, "Broadcast receiver unregistered")
             } catch (e: IllegalArgumentException) {
-                // Already unregistered
+                Log.w(TAG, "Receiver already unregistered")
             }
         }
         messageReceiver = null

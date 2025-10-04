@@ -15,7 +15,7 @@ class ConnectIQQueryWorker(
 ) : Worker(appContext, workerParams) {
 
     companion object {
-        private const val TAG = "ConnectIQWorker"
+        private const val TAG = "GarminActivityListener.Worker"
     }
 
     private val connectIQService = ConnectIQService.getInstance()
@@ -24,23 +24,26 @@ class ConnectIQQueryWorker(
     private var lastDeviceIds = emptySet<Long>()
 
     override fun doWork(): Result {
+        Log.i(TAG, "========== WORKER STARTING ==========")
+        
         return try {
-            Log.i(TAG, "Worker starting")
-            
             if (!initializeSDK()) {
+                Log.e(TAG, "SDK initialization failed")
                 sendBroadcast("terminating|SDK initialization failed")
                 return Result.failure()
             }
             
-            Log.i(TAG, "SDK initialized, waiting for device discovery")
+            Log.i(TAG, "Waiting for device discovery (1.5s)...")
             Thread.sleep(1500)
             
+            Log.i(TAG, "Getting connected devices...")
             val devices = connectIQService.getConnectedRealDevices()
             Log.i(TAG, "Found ${devices.size} device(s)")
             
             lastDeviceIds = devices.map { it.deviceIdentifier }.toSet()
             sendDeviceListMessage(devices)
             
+            Log.i(TAG, "Registering message callback...")
             connectIQService.setMessageCallback { payload, deviceName, _ ->
                 if (running.get()) {
                     Log.i(TAG, "Message from $deviceName: $payload")
@@ -48,13 +51,16 @@ class ConnectIQQueryWorker(
                 }
             }
             
+            Log.i(TAG, "Registering device change callback...")
             connectIQService.setDeviceChangeCallback {
                 if (running.get()) {
+                    Log.i(TAG, "Device change detected")
                     handleDeviceChange()
                 }
             }
             
-            Log.i(TAG, "Worker ready - waiting for events")
+            Log.i(TAG, "========== WORKER READY ==========")
+            Log.i(TAG, "Waiting for events...")
             
             waitUntilStopped()
             
@@ -62,40 +68,29 @@ class ConnectIQQueryWorker(
             Result.success()
             
         } catch (e: Exception) {
-            Log.e(TAG, "Worker error: ${e.message}", e)
+            Log.e(TAG, "Worker error", e)
             sendBroadcast("terminating|Worker exception: ${e.message}")
             Result.failure()
         } finally {
             running.set(false)
             connectIQService.setMessageCallback(null)
             connectIQService.setDeviceChangeCallback(null)
+            Log.i(TAG, "========== WORKER TERMINATED ==========")
         }
     }
     
     private fun initializeSDK(): Boolean {
-        Log.i(TAG, "Checking permissions")
+        Log.i(TAG, "Checking permissions...")
         if (!connectIQService.hasRequiredPermissions(applicationContext)) {
-            Log.e(TAG, "Missing permissions")
+            Log.e(TAG, "Missing required permissions")
             return false
         }
         
-        Log.i(TAG, "Initializing ConnectIQ SDK")
-        return try {
-            val result = connectIQService.initializeForWorker(applicationContext)
-            if (result) {
-                Log.i(TAG, "SDK initialization successful")
-            } else {
-                Log.e(TAG, "SDK initialization failed")
-            }
-            result
-        } catch (e: Exception) {
-            Log.e(TAG, "SDK initialization exception", e)
-            false
-        }
+        Log.i(TAG, "Initializing ConnectIQ SDK...")
+        return connectIQService.initializeForWorker(applicationContext)
     }
     
     private fun handleDeviceChange() {
-        Log.i(TAG, "Device change detected")
         val currentDevices = connectIQService.getConnectedRealDevices()
         val currentIds = currentDevices.map { it.deviceIdentifier }.toSet()
         
@@ -120,9 +115,10 @@ class ConnectIQQueryWorker(
         devices.forEach { device ->
             val name = device.friendlyName ?: "Unknown"
             parts.add(name)
-            Log.d(TAG, "Device: $name")
+            Log.d(TAG, "  Device: $name")
         }
-        sendBroadcast(parts.joinToString("|"))
+        val message = parts.joinToString("|")
+        sendBroadcast(message)
     }
     
     private fun sendBroadcast(message: String) {
@@ -139,7 +135,7 @@ class ConnectIQQueryWorker(
     
     override fun onStopped() {
         super.onStopped()
-        Log.i(TAG, "onStopped called")
+        Log.i(TAG, "onStopped() called")
         running.set(false)
         stopLatch.countDown()
     }

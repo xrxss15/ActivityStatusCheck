@@ -50,7 +50,7 @@ class ConnectIQService private constructor() {
         messageCallback = callback
     }
     
-    fun setDeviceChangeCallback(callback: (() -> Unit)?) {
+    fun setDeviceChangeCallback(callback: (() -> Unit)? ) {
         deviceChangeCallback = callback
     }
 

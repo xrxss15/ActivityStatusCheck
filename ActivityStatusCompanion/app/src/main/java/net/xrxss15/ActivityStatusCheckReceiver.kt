@@ -54,9 +54,11 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
     
     private fun sendMessage(context: Context, message: String) {
         try {
+            // Implicit broadcast for both MainActivity and Tasker
             val intent = Intent(ACTION_MESSAGE).apply {
                 putExtra(EXTRA_MESSAGE, message)
-                setPackage("net.xrxss15")
+                addCategory(Intent.CATEGORY_DEFAULT)
+                // NO setPackage - allows Tasker to receive
             }
             context.sendBroadcast(intent)
         } catch (e: Exception) {

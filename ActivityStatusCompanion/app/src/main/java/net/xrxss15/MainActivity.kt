@@ -152,7 +152,7 @@ class MainActivity : Activity() {
         
         val filter = IntentFilter(ActivityStatusCheckReceiver.ACTION_MESSAGE)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(messageReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            registerReceiver(messageReceiver, filter, Context.RECEIVER_EXPORTED)  // ← CHANGED to EXPORTED
         } else {
             registerReceiver(messageReceiver, filter)
         }

@@ -54,10 +54,11 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
     
     private fun sendMessage(context: Context, message: String) {
         try {
-            // Implicit broadcast for both MainActivity and Tasker
+            // Single implicit broadcast - received by both MainActivity and Tasker
             val intent = Intent(ACTION_MESSAGE).apply {
                 putExtra(EXTRA_MESSAGE, message)
                 addCategory(Intent.CATEGORY_DEFAULT)
+                // No setPackage - allows both MainActivity (exported) and Tasker to receive
             }
             context.sendBroadcast(intent)
         } catch (e: Exception) {

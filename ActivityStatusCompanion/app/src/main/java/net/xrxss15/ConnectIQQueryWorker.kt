@@ -106,10 +106,11 @@ class ConnectIQQueryWorker(
     
     private fun sendBroadcast(message: String) {
         try {
-            // Implicit broadcast for both MainActivity and Tasker
+            // Single implicit broadcast - received by both MainActivity and Tasker
             val intent = Intent(ActivityStatusCheckReceiver.ACTION_MESSAGE).apply {
                 putExtra(ActivityStatusCheckReceiver.EXTRA_MESSAGE, message)
                 addCategory(Intent.CATEGORY_DEFAULT)
+                // No setPackage - allows both MainActivity (exported) and Tasker to receive
             }
             applicationContext.sendBroadcast(intent)
         } catch (e: Exception) {

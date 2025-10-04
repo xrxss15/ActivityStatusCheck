@@ -17,10 +17,6 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
-/**
- * ConnectIQ Service - Event-Driven Passive Listener
- * Thread-safe singleton managing ConnectIQ SDK lifecycle
- */
 class ConnectIQService private constructor() {
 
     companion object {
@@ -150,7 +146,6 @@ class ConnectIQService private constructor() {
     }
     
     private fun registerDeviceListeners(ciq: ConnectIQ, device: IQDevice) {
-        // Register app event listener for messages
         val appKey = "${device.deviceIdentifier}:$APP_UUID"
         if (!appListeners.containsKey(appKey)) {
             try {
@@ -174,19 +169,15 @@ class ConnectIQService private constructor() {
             }
         }
         
-        // Register device status listener for connection changes
         val deviceKey = "${device.deviceIdentifier}"
         if (!deviceListeners.containsKey(deviceKey)) {
             val listener = IQDeviceEventListener { _, status ->
                 when (status) {
                     IQDevice.IQDeviceStatus.CONNECTED,
                     IQDevice.IQDeviceStatus.NOT_CONNECTED -> {
-                        // Device status changed - notify worker to refresh
                         deviceChangeCallback?.invoke()
                     }
-                    else -> {
-                        // Other status changes - ignore
-                    }
+                    else -> {}
                 }
             }
             

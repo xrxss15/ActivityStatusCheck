@@ -18,10 +18,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/**
- * MainActivity - Debug UI
- * Receives same intents as Tasker for accurate debugging
- */
 class MainActivity : Activity() {
 
     private lateinit var logView: TextView
@@ -187,7 +183,6 @@ class MainActivity : Activity() {
                     appendLog("Device: ${parts[1]}")
                     appendLog("Received: ${formatTimestamp(System.currentTimeMillis())}")
                     
-                    // Accept both "STARTED"/"STOPPED" and "ACTIVITY_STARTED"/"ACTIVITY_STOPPED"
                     val eventDisplay = when (parts[2]) {
                         "STARTED", "ACTIVITY_STARTED" -> "🏃 STARTED"
                         "STOPPED", "ACTIVITY_STOPPED" -> "⏹️  STOPPED"

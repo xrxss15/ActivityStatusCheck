@@ -10,10 +10,6 @@ import java.util.*
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
 
-/**
- * ConnectIQ Query Worker - Pure Event-Driven Listener
- * ZERO CPU usage when idle - only active during actual events
- */
 class ConnectIQQueryWorker(
     appContext: Context,
     workerParams: WorkerParameters
@@ -32,18 +28,27 @@ class ConnectIQQueryWorker(
 
     override fun doWork(): Result {
         return try {
-            log("Starting listener (event-driven)")
+            log("Worker starting...")
             
             if (!initializeSDK()) {
                 sendBroadcastSafe("terminating|SDK initialization failed")
                 return Result.failure()
             }
             
+            log("SDK initialized, waiting for device discovery...")
+            
+            // CRITICAL FIX: Wait for device discovery
+            // SDK needs time after initialization to discover connected devices
+            Thread.sleep(1500)
+            
+            log("Getting connected devices...")
             val devices = connectIQService.getConnectedRealDevices()
+            log("Found ${devices.size} device(s)")
+            
             lastDeviceIds = devices.map { it.deviceIdentifier }.toSet()
             sendDeviceListMessage(devices)
             
-            // Message callback - fires when messages arrive
+            log("Registering message callback...")
             connectIQService.setMessageCallback { payload, deviceName, _ ->
                 if (running.get()) {
                     log("Message from $deviceName")
@@ -51,17 +56,15 @@ class ConnectIQQueryWorker(
                 }
             }
             
-            // Device change callback - fires on connect/disconnect
+            log("Registering device change callback...")
             connectIQService.setDeviceChangeCallback {
                 if (running.get()) {
                     handleDeviceChange()
                 }
             }
             
-            connectIQService.registerListenersForAllDevices()
-            log("Listeners registered - waiting for events")
+            log("Worker ready - waiting for events")
             
-            // Pure wait - NO periodic wake-ups, only events
             waitUntilStopped()
             
             log("Worker stopped")
@@ -79,52 +82,54 @@ class ConnectIQQueryWorker(
     }
     
     private fun initializeSDK(): Boolean {
+        log("Checking permissions...")
         if (!connectIQService.hasRequiredPermissions(applicationContext)) {
             log("ERROR: Missing permissions")
             return false
         }
         
+        log("Initializing ConnectIQ SDK...")
         return try {
-            connectIQService.initializeForWorker(applicationContext)
+            val result = connectIQService.initializeForWorker(applicationContext)
+            if (result) {
+                log("SDK initialization successful")
+            } else {
+                log("SDK initialization failed")
+            }
+            result
         } catch (e: Exception) {
-            log("ERROR: ${e.message}")
+            log("SDK initialization exception: ${e.message}")
             false
         }
     }
     
     private fun handleDeviceChange() {
+        log("Device change detected")
         val currentDevices = connectIQService.getConnectedRealDevices()
         val currentIds = currentDevices.map { it.deviceIdentifier }.toSet()
         
-        // Only process if device list actually changed
         if (currentIds != lastDeviceIds) {
-            log("Device list changed")
+            log("Device list changed: ${currentDevices.size} device(s)")
             lastDeviceIds = currentIds
             sendDeviceListMessage(currentDevices)
-            
-            // Re-register listeners (SDK handles duplicate registrations)
             connectIQService.registerListenersForAllDevices()
         }
     }
     
-    /**
-     * Pure wait - ZERO CPU usage
-     * Only wakes when:
-     * - onStopped() called (releases latch)
-     * - Thread interrupted
-     */
     private fun waitUntilStopped() {
         try {
-            stopLatch.await() // Infinite wait - no timeout!
+            stopLatch.await()
         } catch (e: InterruptedException) {
-            // Worker interrupted - exit gracefully
+            // Worker interrupted
         }
     }
     
     private fun sendDeviceListMessage(devices: List<IQDevice>) {
         val parts = mutableListOf("devices", devices.size.toString())
         devices.forEach { device ->
-            parts.add(device.friendlyName ?: "Unknown")
+            val name = device.friendlyName ?: "Unknown"
+            parts.add(name)
+            log("  Device: $name")
         }
         sendBroadcastSafe(parts.joinToString("|"))
     }
@@ -143,6 +148,6 @@ class ConnectIQQueryWorker(
     override fun onStopped() {
         super.onStopped()
         running.set(false)
-        stopLatch.countDown() // Wake up waitUntilStopped()
+        stopLatch.countDown()
     }
 }

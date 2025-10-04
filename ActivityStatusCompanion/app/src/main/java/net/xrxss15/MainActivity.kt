@@ -2,6 +2,10 @@ package net.xrxss15
 
 import android.Manifest
 import android.app.Activity
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -10,27 +14,36 @@ import android.os.Looper
 import android.widget.*
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.garmin.android.connectiq.IQDevice
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
  * MainActivity - Debug UI
+ * 
+ * Displays messages by receiving the same GARMIN_MESSAGE intents that Tasker receives.
+ * This ensures debug output matches production behavior exactly.
  */
 class MainActivity : Activity() {
 
     private lateinit var logView: TextView
     private lateinit var scroll: ScrollView
-    private lateinit var devicesSpinner: Spinner
-    private lateinit var refreshBtn: Button
-    private lateinit var initBtn: Button
+    private lateinit var startBtn: Button
+    private lateinit var stopBtn: Button
     private lateinit var copyBtn: Button
     private lateinit var clearBtn: Button
-
+    
     private val handler = Handler(Looper.getMainLooper())
-    private val connectIQService = ConnectIQService.getInstance()
-    private var devices: List<IQDevice> = emptyList()
+    
+    // Broadcast receiver for GARMIN_MESSAGE intents (same as Tasker)
+    private val messageReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == ActivityStatusCheckReceiver.ACTION_MESSAGE) {
+                val message = intent.getStringExtra(ActivityStatusCheckReceiver.EXTRA_MESSAGE) ?: return
+                handleGarminMessage(message)
+            }
+        }
+    }
 
     private fun ts(): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
     
@@ -64,15 +77,15 @@ class MainActivity : Activity() {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 8, 0, 8)
             }
-            initBtn = Button(this@MainActivity).apply { 
-                text = "Initialize"
+            startBtn = Button(this@MainActivity).apply { 
+                text = "Start Listener"
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
-            refreshBtn = Button(this@MainActivity).apply { 
-                text = "Refresh"
+            stopBtn = Button(this@MainActivity).apply { 
+                text = "Stop Listener"
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
-            row1.addView(initBtn); row1.addView(refreshBtn)
+            row1.addView(startBtn); row1.addView(stopBtn)
             addView(row1)
 
             val row2 = LinearLayout(this@MainActivity).apply { 
@@ -90,9 +103,6 @@ class MainActivity : Activity() {
             row2.addView(copyBtn); row2.addView(clearBtn)
             addView(row2)
 
-            devicesSpinner = Spinner(this@MainActivity)
-            addView(devicesSpinner)
-
             scroll = ScrollView(this@MainActivity)
             logView = TextView(this@MainActivity).apply {
                 textSize = 12f
@@ -106,71 +116,22 @@ class MainActivity : Activity() {
         }
         setContentView(root)
 
-        connectIQService.registerLogSink { line -> appendLog(line) }
-        
-        connectIQService.setMessageCallback { payload, deviceName, timestampMillis ->
-            appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            appendLog("📱 MESSAGE")
-            appendLog("Device: $deviceName")
-            appendLog("Received: ${formatTimestamp(timestampMillis)}")
-            
-            // Parse: EVENT|TIMESTAMP|ACTIVITY|DURATION
-            val parts = payload.split("|")
-            if (parts.size >= 4) {
-                val event = parts[0]
-                val eventTimestamp = parts[1]
-                val activity = parts[2]
-                val duration = parts[3]
-                
-                // Event type
-                val eventDisplay = when (event) {
-                    "ACTIVITY_STARTED" -> "🏃 STARTED"
-                    "ACTIVITY_STOPPED" -> "⏹️  STOPPED"
-                    else -> event
-                }
-                appendLog("Event: $eventDisplay")
-                
-                // Event time
-                try {
-                    val eventTime = eventTimestamp.toLong() * 1000
-                    appendLog("Event Time: ${formatTimestamp(eventTime)}")
-                } catch (e: Exception) {
-                    appendLog("Event Time: $eventTimestamp")
-                }
-                
-                // Activity
-                appendLog("Activity: $activity")
-                
-                // Duration (formatted as HH:MM:SS)
-                try {
-                    val dur = duration.toInt()
-                    appendLog("Duration: ${formatDuration(dur)}")
-                } catch (e: Exception) {
-                    appendLog("Duration: $duration")
-                }
-            } else {
-                appendLog("Raw: $payload")
-            }
-            
-            appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        // Register to receive GARMIN_MESSAGE intents (same as Tasker)
+        val filter = IntentFilter(ActivityStatusCheckReceiver.ACTION_MESSAGE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(messageReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(messageReceiver, filter)
         }
 
-        if (!hasRequiredPermissions()) {
-            requestRequiredPermissions()
+        startBtn.setOnClickListener {
+            appendLog("[${ts()}] Starting listener...")
+            sendBroadcast(Intent(ActivityStatusCheckReceiver.ACTION_START))
         }
 
-        initBtn.setOnClickListener {
-            Thread {
-                val ok = connectIQService.initializeForWorker(this@MainActivity)
-                if (ok) handler.post { reloadDevices() }
-            }.start()
-        }
-
-        refreshBtn.setOnClickListener { 
-            Thread {
-                connectIQService.refreshListeners()
-                reloadDevices()
-            }.start()
+        stopBtn.setOnClickListener {
+            appendLog("[${ts()}] Stopping listener...")
+            sendBroadcast(Intent(ActivityStatusCheckReceiver.ACTION_STOP))
         }
 
         copyBtn.setOnClickListener {
@@ -183,36 +144,105 @@ class MainActivity : Activity() {
             logView.text = ""
         }
 
+        if (!hasRequiredPermissions()) {
+            requestRequiredPermissions()
+        }
+
         appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         appendLog("Garmin Activity Listener")
-        appendLog("Debug Mode")
+        appendLog("Debug Mode - Receiving Intents")
         appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        appendLog("")
+        appendLog("Press 'Start Listener' to begin")
     }
 
-    private fun reloadDevices() {
-        Thread {
-            val ds = connectIQService.getConnectedRealDevices()
-            val labels = if (ds.isEmpty()) {
-                listOf("No devices")
-            } else {
-                ds.map { "${it.friendlyName} (${it.deviceIdentifier})" }
+    /**
+     * Handles GARMIN_MESSAGE intents - same format as Tasker receives
+     * 
+     * Message types:
+     * - devices|COUNT|NAME1|NAME2|...
+     * - message_received|DEVICE|EVENT|TIMESTAMP|ACTIVITY|DURATION
+     * - terminating|REASON
+     */
+    private fun handleGarminMessage(message: String) {
+        val parts = message.split("|")
+        if (parts.isEmpty()) return
+        
+        when (parts[0]) {
+            "devices" -> {
+                // Format: devices|COUNT|NAME1|NAME2|...
+                if (parts.size >= 2) {
+                    val count = parts[1].toIntOrNull() ?: 0
+                    appendLog("[${ts()}] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    appendLog("[${ts()}] 📡 DEVICES: $count")
+                    for (i in 2 until parts.size) {
+                        appendLog("[${ts()}]   • ${parts[i]}")
+                    }
+                    appendLog("[${ts()}] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                }
             }
             
-            handler.post {
-                devices = ds
-                val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, labels).apply {
-                    setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-                }
-                devicesSpinner.adapter = adapter
-                
-                if (devices.isEmpty()) {
-                    appendLog("[${ts()}] ⚠️ No devices")
-                } else {
-                    appendLog("[${ts()}] ✅ ${devices.size} device(s):")
-                    devices.forEach { appendLog("  • ${it.friendlyName}") }
+            "message_received" -> {
+                // Format: message_received|DEVICE|EVENT|TIMESTAMP|ACTIVITY|DURATION
+                if (parts.size >= 6) {
+                    val device = parts[1]
+                    val event = parts[2]
+                    val eventTimestamp = parts[3]
+                    val activity = parts[4]
+                    val duration = parts[5]
+                    
+                    appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    appendLog("📱 MESSAGE")
+                    appendLog("Device: $device")
+                    appendLog("Received: ${formatTimestamp(System.currentTimeMillis())}")
+                    
+                    // Event type
+                    val eventDisplay = when (event) {
+                        "ACTIVITY_STARTED" -> "🏃 STARTED"
+                        "ACTIVITY_STOPPED" -> "⏹️  STOPPED"
+                        else -> event
+                    }
+                    appendLog("Event: $eventDisplay")
+                    
+                    // Event time
+                    try {
+                        val eventTime = eventTimestamp.toLong() * 1000
+                        appendLog("Event Time: ${formatTimestamp(eventTime)}")
+                    } catch (e: Exception) {
+                        appendLog("Event Time: $eventTimestamp")
+                    }
+                    
+                    // Activity
+                    appendLog("Activity: $activity")
+                    
+                    // Duration (formatted as HH:MM:SS)
+                    try {
+                        val dur = duration.toInt()
+                        appendLog("Duration: ${formatDuration(dur)}")
+                    } catch (e: Exception) {
+                        appendLog("Duration: $duration")
+                    }
+                    
+                    appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 }
             }
-        }.start()
+            
+            "terminating" -> {
+                // Format: terminating|REASON
+                if (parts.size >= 2) {
+                    val reason = parts[1]
+                    appendLog("[${ts()}] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    appendLog("[${ts()}] ⚠️ TERMINATING")
+                    appendLog("[${ts()}] Reason: $reason")
+                    appendLog("[${ts()}] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                }
+            }
+            
+            else -> {
+                // Unknown format - show raw
+                appendLog("[${ts()}] Unknown: $message")
+            }
+        }
     }
 
     private fun appendLog(line: String) {
@@ -238,21 +268,23 @@ class MainActivity : Activity() {
             perms.add(Manifest.permission.BLUETOOTH_CONNECT)
         }
         ActivityCompat.requestPermissions(this, perms.toTypedArray(), 100)
+        appendLog("[${ts()}] Requesting permissions...")
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 100) {
             val allGranted = grantResults.all { it == PackageManager.PERMISSION_GRANTED }
-            appendLog("[${ts()}] ${if (allGranted) "✅ Granted" else "❌ Denied"}")
-            
-            if (allGranted) {
-                Thread {
-                    Thread.sleep(500)
-                    val ok = connectIQService.initializeForWorker(this@MainActivity)
-                    if (ok) handler.post { reloadDevices() }
-                }.start()
-            }
+            appendLog("[${ts()}] Permissions ${if (allGranted) "✅ Granted" else "❌ Denied"}")
+        }
+    }
+    
+    override fun onDestroy() {
+        super.onDestroy()
+        try {
+            unregisterReceiver(messageReceiver)
+        } catch (e: Exception) {
+            // Already unregistered
         }
     }
 }

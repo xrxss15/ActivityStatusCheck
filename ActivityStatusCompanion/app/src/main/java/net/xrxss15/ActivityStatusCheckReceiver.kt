@@ -3,7 +3,6 @@ package net.xrxss15
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.util.Log
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
@@ -16,8 +15,6 @@ import androidx.work.WorkManager
 class ActivityStatusCheckReceiver : BroadcastReceiver() {
 
     companion object {
-        private const val TAG = "ActStatusReceiver"
-        
         // Control intents
         const val ACTION_START = "net.xrxss15.START_GARMIN_LISTENER"
         const val ACTION_STOP = "net.xrxss15.STOP_GARMIN_LISTENER"
@@ -35,19 +32,12 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
         
-        Log.i(TAG, "Received intent: $action")
-        
         when (action) {
             ACTION_START -> {
-                Log.i(TAG, "Starting Garmin listener - terminating any existing instances")
                 startListener(context)
             }
             ACTION_STOP -> {
-                Log.i(TAG, "Stopping Garmin listener - terminating all instances")
                 stopListener(context)
-            }
-            else -> {
-                Log.w(TAG, "Unknown action: $action")
             }
         }
     }
@@ -58,16 +48,12 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
         
         WorkManager.getInstance(context.applicationContext)
             .enqueueUniqueWork(UNIQUE_WORK, ExistingWorkPolicy.REPLACE, workRequest)
-            
-        Log.i(TAG, "Worker enqueued")
     }
     
     private fun stopListener(context: Context) {
         // Cancel all work and terminate
         WorkManager.getInstance(context.applicationContext)
             .cancelUniqueWork(UNIQUE_WORK)
-            
-        Log.i(TAG, "Worker cancelled")
         
         // Also send termination message
         sendMessage(context, "terminating|Stopped by user")

@@ -43,12 +43,7 @@ class MainActivity : Activity() {
         val hours = seconds / 3600
         val minutes = (seconds % 3600) / 60
         val secs = seconds % 60
-        
-        return when {
-            hours > 0 -> String.format("%dh %02dm %02ds", hours, minutes, secs)
-            minutes > 0 -> String.format("%dm %02ds", minutes, secs)
-            else -> String.format("%ds", secs)
-        }
+        return String.format("%02d:%02d:%02d", hours, minutes, secs)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,7 +54,7 @@ class MainActivity : Activity() {
             setPadding(16, 16, 16, 16)
 
             val header = TextView(this@MainActivity).apply {
-                text = "Garmin Listener\nDebug Mode"
+                text = "Garmin Activity Listener\nDebug Mode"
                 textSize = 16f
                 setTypeface(null, android.graphics.Typeface.BOLD)
             }
@@ -117,8 +112,7 @@ class MainActivity : Activity() {
             appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             appendLog("📱 MESSAGE")
             appendLog("Device: $deviceName")
-            appendLog("Time: ${formatTimestamp(timestampMillis)}")
-            appendLog("")
+            appendLog("Received: ${formatTimestamp(timestampMillis)}")
             
             // Parse: EVENT|TIMESTAMP|ACTIVITY|DURATION
             val parts = payload.split("|")
@@ -128,30 +122,30 @@ class MainActivity : Activity() {
                 val activity = parts[2]
                 val duration = parts[3]
                 
+                // Event type
                 val eventDisplay = when (event) {
                     "ACTIVITY_STARTED" -> "🏃 STARTED"
                     "ACTIVITY_STOPPED" -> "⏹️  STOPPED"
                     else -> event
                 }
-                appendLog(eventDisplay)
+                appendLog("Event: $eventDisplay")
                 
+                // Event time
                 try {
                     val eventTime = eventTimestamp.toLong() * 1000
-                    appendLog("Event: ${formatTimestamp(eventTime)}")
+                    appendLog("Event Time: ${formatTimestamp(eventTime)}")
                 } catch (e: Exception) {
-                    appendLog("Event: $eventTimestamp")
+                    appendLog("Event Time: $eventTimestamp")
                 }
                 
+                // Activity
                 appendLog("Activity: $activity")
                 
-                if (event == "ACTIVITY_STOPPED") {
-                    try {
-                        val dur = duration.toInt()
-                        appendLog("Duration: ${formatDuration(dur)}")
-                    } catch (e: Exception) {
-                        appendLog("Duration: $duration")
-                    }
-                } else {
+                // Duration (formatted as HH:MM:SS)
+                try {
+                    val dur = duration.toInt()
+                    appendLog("Duration: ${formatDuration(dur)}")
+                } catch (e: Exception) {
                     appendLog("Duration: $duration")
                 }
             } else {
@@ -190,7 +184,8 @@ class MainActivity : Activity() {
         }
 
         appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        appendLog("Garmin Listener - Debug Mode")
+        appendLog("Garmin Activity Listener")
+        appendLog("Debug Mode")
         appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 

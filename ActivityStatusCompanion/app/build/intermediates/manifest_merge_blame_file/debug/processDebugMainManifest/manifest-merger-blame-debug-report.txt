@@ -87,8 +87,8 @@
 48        android:extractNativeLibs="false"
 49        android:icon="@android:drawable/sym_def_app_icon"
 49-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:18:9-58
-50        android:label="Activity Status Check"
-50-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:19:9-46
+50        android:label="Garmin Activity Listener"
+50-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:19:9-49
 51        android:theme="@android:style/Theme.Material.Light" >
 51-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:20:9-60
 52        <activity

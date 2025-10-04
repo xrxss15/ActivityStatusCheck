@@ -59,8 +59,8 @@ class ConnectIQService private constructor() {
     private fun ts(): String = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
 
     fun log(message: String) { 
-        logSink?.invoke(message) 
-        android.util.Log.i("ConnectIQService", message)
+        logSink?.invoke(message)
+        // No logcat output
     }
 
     private fun logInfo(message: String) {
@@ -73,7 +73,6 @@ class ConnectIQService private constructor() {
 
     private fun logError(message: String) {
         log("[${ts()}] ❌ $message")
-        android.util.Log.e("ConnectIQService", message)
     }
 
     fun hasRequiredPermissions(ctx: Context): Boolean {
@@ -198,7 +197,7 @@ class ConnectIQService private constructor() {
                             val payload = messages.joinToString("|") { it.toString() }
                             val timestamp = System.currentTimeMillis()
                             
-                            logSuccess("Message from ${dev.friendlyName}")
+                            logSuccess("Message from ${dev.friendlyName ?: "Unknown"}")
                             logInfo("Payload: $payload")
                             
                             messageCallback?.invoke(payload, dev.friendlyName ?: "Unknown", timestamp)

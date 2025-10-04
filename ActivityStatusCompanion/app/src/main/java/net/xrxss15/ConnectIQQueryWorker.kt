@@ -106,13 +106,23 @@ class ConnectIQQueryWorker(
     
     private fun sendBroadcast(message: String) {
         try {
-            // Single implicit broadcast - received by both MainActivity and Tasker
-            val intent = Intent(ActivityStatusCheckReceiver.ACTION_MESSAGE).apply {
+            // 1. Explicit broadcast for MainActivity
+            val explicitIntent = Intent(ActivityStatusCheckReceiver.ACTION_MESSAGE).apply {
                 putExtra(ActivityStatusCheckReceiver.EXTRA_MESSAGE, message)
-                addCategory(Intent.CATEGORY_DEFAULT)
-                // No setPackage - allows both MainActivity (exported) and Tasker to receive
+                setPackage(applicationContext.packageName)
             }
-            applicationContext.sendBroadcast(intent)
+            applicationContext.sendBroadcast(explicitIntent)
+            
+            // 2. Implicit broadcast for Tasker with standard extra name
+            val implicitIntent = Intent(ActivityStatusCheckReceiver.ACTION_MESSAGE).apply {
+                // Use standard "message" key that Tasker can access via %message
+                putExtra("message", message)
+                addCategory(Intent.CATEGORY_DEFAULT)
+                // No setPackage - allows Tasker to receive
+            }
+            applicationContext.sendBroadcast(implicitIntent)
+            
+            Log.d(TAG, "Dual broadcast sent: $message")
         } catch (e: Exception) {
             Log.e(TAG, "Broadcast failed", e)
         }

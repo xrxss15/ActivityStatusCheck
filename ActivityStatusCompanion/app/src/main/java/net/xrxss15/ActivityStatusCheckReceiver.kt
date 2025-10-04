@@ -54,13 +54,22 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
     
     private fun sendMessage(context: Context, message: String) {
         try {
-            // Single implicit broadcast - received by both MainActivity and Tasker
-            val intent = Intent(ACTION_MESSAGE).apply {
+            // 1. Explicit broadcast for MainActivity
+            val explicitIntent = Intent(ACTION_MESSAGE).apply {
                 putExtra(EXTRA_MESSAGE, message)
-                addCategory(Intent.CATEGORY_DEFAULT)
-                // No setPackage - allows both MainActivity (exported) and Tasker to receive
+                setPackage(context.packageName)
             }
-            context.sendBroadcast(intent)
+            context.sendBroadcast(explicitIntent)
+            
+            // 2. Implicit broadcast for Tasker with standard extra name
+            val implicitIntent = Intent(ACTION_MESSAGE).apply {
+                // Use standard "message" key that Tasker can access via %message
+                putExtra("message", message)
+                addCategory(Intent.CATEGORY_DEFAULT)
+            }
+            context.sendBroadcast(implicitIntent)
+            
+            Log.d(TAG, "Dual broadcast sent: $message")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send message", e)
         }

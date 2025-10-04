@@ -160,11 +160,8 @@ class MainActivity : Activity() {
         if (parts.isEmpty()) return
         
         when (parts[0]) {
-            "log" -> {
-                if (parts.size >= 2) appendLog(parts[1])
-            }
-            
             "devices" -> {
+                // Format: devices|COUNT|NAME1|NAME2|...
                 if (parts.size >= 2) {
                     val count = parts[1].toIntOrNull() ?: 0
                     appendLog("[${ts()}] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -177,6 +174,7 @@ class MainActivity : Activity() {
             }
             
             "message_received" -> {
+                // Format: message_received|DEVICE|EVENT|TIMESTAMP|ACTIVITY|DURATION
                 if (parts.size >= 6) {
                     appendLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     appendLog("📱 MESSAGE")
@@ -210,6 +208,7 @@ class MainActivity : Activity() {
             }
             
             "terminating" -> {
+                // Format: terminating|REASON
                 if (parts.size >= 2) {
                     appendLog("[${ts()}] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     appendLog("[${ts()}] ⚠️ TERMINATING")

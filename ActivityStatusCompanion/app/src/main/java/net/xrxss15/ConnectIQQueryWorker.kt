@@ -2,11 +2,10 @@ package net.xrxss15
 
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import androidx.work.Worker
 import androidx.work.WorkerParameters
 import com.garmin.android.connectiq.IQDevice
-import java.text.SimpleDateFormat
-import java.util.*
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -15,64 +14,56 @@ class ConnectIQQueryWorker(
     workerParams: WorkerParameters
 ) : Worker(appContext, workerParams) {
 
+    companion object {
+        private const val TAG = "ConnectIQWorker"
+    }
+
     private val connectIQService = ConnectIQService.getInstance()
     private val stopLatch = CountDownLatch(1)
     private val running = AtomicBoolean(true)
     private var lastDeviceIds = emptySet<Long>()
 
-    private fun ts(): String = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
-    
-    private fun log(message: String) {
-        sendBroadcastSafe("log|[${ts()}] $message")
-    }
-
     override fun doWork(): Result {
         return try {
-            log("Worker starting...")
+            Log.i(TAG, "Worker starting")
             
             if (!initializeSDK()) {
-                sendBroadcastSafe("terminating|SDK initialization failed")
+                sendBroadcast("terminating|SDK initialization failed")
                 return Result.failure()
             }
             
-            log("SDK initialized, waiting for device discovery...")
-            
-            // CRITICAL FIX: Wait for device discovery
-            // SDK needs time after initialization to discover connected devices
+            Log.i(TAG, "SDK initialized, waiting for device discovery")
             Thread.sleep(1500)
             
-            log("Getting connected devices...")
             val devices = connectIQService.getConnectedRealDevices()
-            log("Found ${devices.size} device(s)")
+            Log.i(TAG, "Found ${devices.size} device(s)")
             
             lastDeviceIds = devices.map { it.deviceIdentifier }.toSet()
             sendDeviceListMessage(devices)
             
-            log("Registering message callback...")
             connectIQService.setMessageCallback { payload, deviceName, _ ->
                 if (running.get()) {
-                    log("Message from $deviceName")
-                    sendBroadcastSafe("message_received|$deviceName|$payload")
+                    Log.i(TAG, "Message from $deviceName: $payload")
+                    sendBroadcast("message_received|$deviceName|$payload")
                 }
             }
             
-            log("Registering device change callback...")
             connectIQService.setDeviceChangeCallback {
                 if (running.get()) {
                     handleDeviceChange()
                 }
             }
             
-            log("Worker ready - waiting for events")
+            Log.i(TAG, "Worker ready - waiting for events")
             
             waitUntilStopped()
             
-            log("Worker stopped")
+            Log.i(TAG, "Worker stopped")
             Result.success()
             
         } catch (e: Exception) {
-            log("ERROR: ${e.message}")
-            sendBroadcastSafe("terminating|Worker exception: ${e.message}")
+            Log.e(TAG, "Worker error: ${e.message}", e)
+            sendBroadcast("terminating|Worker exception: ${e.message}")
             Result.failure()
         } finally {
             running.set(false)
@@ -82,34 +73,34 @@ class ConnectIQQueryWorker(
     }
     
     private fun initializeSDK(): Boolean {
-        log("Checking permissions...")
+        Log.i(TAG, "Checking permissions")
         if (!connectIQService.hasRequiredPermissions(applicationContext)) {
-            log("ERROR: Missing permissions")
+            Log.e(TAG, "Missing permissions")
             return false
         }
         
-        log("Initializing ConnectIQ SDK...")
+        Log.i(TAG, "Initializing ConnectIQ SDK")
         return try {
             val result = connectIQService.initializeForWorker(applicationContext)
             if (result) {
-                log("SDK initialization successful")
+                Log.i(TAG, "SDK initialization successful")
             } else {
-                log("SDK initialization failed")
+                Log.e(TAG, "SDK initialization failed")
             }
             result
         } catch (e: Exception) {
-            log("SDK initialization exception: ${e.message}")
+            Log.e(TAG, "SDK initialization exception", e)
             false
         }
     }
     
     private fun handleDeviceChange() {
-        log("Device change detected")
+        Log.i(TAG, "Device change detected")
         val currentDevices = connectIQService.getConnectedRealDevices()
         val currentIds = currentDevices.map { it.deviceIdentifier }.toSet()
         
         if (currentIds != lastDeviceIds) {
-            log("Device list changed: ${currentDevices.size} device(s)")
+            Log.i(TAG, "Device list changed: ${currentDevices.size} device(s)")
             lastDeviceIds = currentIds
             sendDeviceListMessage(currentDevices)
             connectIQService.registerListenersForAllDevices()
@@ -120,7 +111,7 @@ class ConnectIQQueryWorker(
         try {
             stopLatch.await()
         } catch (e: InterruptedException) {
-            // Worker interrupted
+            Log.i(TAG, "Worker interrupted")
         }
     }
     
@@ -129,24 +120,26 @@ class ConnectIQQueryWorker(
         devices.forEach { device ->
             val name = device.friendlyName ?: "Unknown"
             parts.add(name)
-            log("  Device: $name")
+            Log.d(TAG, "Device: $name")
         }
-        sendBroadcastSafe(parts.joinToString("|"))
+        sendBroadcast(parts.joinToString("|"))
     }
     
-    private fun sendBroadcastSafe(message: String) {
+    private fun sendBroadcast(message: String) {
         try {
             val intent = Intent(ActivityStatusCheckReceiver.ACTION_MESSAGE).apply {
                 putExtra(ActivityStatusCheckReceiver.EXTRA_MESSAGE, message)
             }
             applicationContext.sendBroadcast(intent)
+            Log.d(TAG, "Broadcast sent: ${message.take(50)}...")
         } catch (e: Exception) {
-            // Ignore broadcast failures
+            Log.e(TAG, "Broadcast failed", e)
         }
     }
     
     override fun onStopped() {
         super.onStopped()
+        Log.i(TAG, "onStopped called")
         running.set(false)
         stopLatch.countDown()
     }

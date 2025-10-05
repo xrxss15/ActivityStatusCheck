@@ -37,48 +37,83 @@ class ConnectIQQueryWorker(
     private var lastMessageTime: Long = 0
 
     override suspend fun doWork(): Result {
-        Log.i(TAG, "Worker starting")
+        Log.i(TAG, "========================================")
+        Log.i(TAG, "Worker starting - doWork() called")
+        Log.i(TAG, "========================================")
         
         return try {
             // Mark as foreground service immediately
-            setForeground(createForegroundInfo())
+            Log.i(TAG, "Calling setForeground()...")
+            try {
+                setForeground(createForegroundInfo())
+                Log.i(TAG, "✓ setForeground() succeeded - notification should be visible")
+            } catch (e: Exception) {
+                Log.e(TAG, "✗ setForeground() FAILED", e)
+                return Result.failure()
+            }
             
+            Log.i(TAG, "Initializing SDK...")
             if (!initializeSDK()) {
+                Log.e(TAG, "✗ SDK initialization failed")
                 sendBroadcast("terminating|SDK initialization failed")
                 return Result.failure()
             }
+            Log.i(TAG, "✓ SDK initialized successfully")
             
             delay(1500)
             
             val devices = connectIQService.getConnectedRealDevices()
             Log.i(TAG, "Found ${devices.size} device(s)")
+            devices.forEachIndexed { index, device ->
+                Log.i(TAG, "  Device $index: ${device.friendlyName} (ID: ${device.deviceIdentifier})")
+            }
             
             lastDeviceIds = devices.map { it.deviceIdentifier }.toSet()
             connectedDeviceNames = devices.map { it.friendlyName ?: "Unknown" }
             
             // Update notification with devices
+            Log.i(TAG, "Updating notification with device list...")
             setForeground(createForegroundInfo())
             
             sendDeviceListMessage(devices)
             
+            Log.i(TAG, "Setting up message callback...")
             connectIQService.setMessageCallback { payload, deviceName, timestamp ->
+                Log.i(TAG, "========================================")
+                Log.i(TAG, "MESSAGE RECEIVED!")
+                Log.i(TAG, "Device: $deviceName")
+                Log.i(TAG, "Payload: $payload")
+                Log.i(TAG, "Timestamp: $timestamp")
+                Log.i(TAG, "========================================")
+                
                 // Update notification with last message
                 lastMessage = parseMessage(payload, deviceName)
                 lastMessageTime = timestamp
                 
+                Log.i(TAG, "Parsed message: $lastMessage")
+                Log.i(TAG, "Broadcasting message...")
                 sendBroadcast("message_received|$deviceName|$payload")
+                Log.i(TAG, "Broadcast sent")
             }
             
             connectIQService.setDeviceChangeCallback {
-                // Device changed - will be handled in main loop
+                Log.i(TAG, "Device change detected")
             }
             
-            Log.i(TAG, "Worker ready, waiting for events")
+            Log.i(TAG, "Worker ready - entering main loop")
+            Log.i(TAG, "Waiting for messages from watch...")
             
-            // Indefinite wait loop - checks isStopped for cancellation
+            // Indefinite wait loop
+            var loopCounter = 0
             var updateCounter = 0
             while (!isStopped) {
                 delay(1000)
+                loopCounter++
+                
+                // Log every 30 seconds to show we're alive
+                if (loopCounter % 30 == 0) {
+                    Log.i(TAG, "Worker still running (${loopCounter}s elapsed)")
+                }
                 
                 // Update notification every 5 seconds if we have a message
                 updateCounter++
@@ -96,6 +131,10 @@ class ConnectIQQueryWorker(
                 val currentIds = currentDevices.map { it.deviceIdentifier }.toSet()
                 
                 if (currentIds != lastDeviceIds) {
+                    Log.i(TAG, "Device list changed!")
+                    Log.i(TAG, "Old: $lastDeviceIds")
+                    Log.i(TAG, "New: $currentIds")
+                    
                     lastDeviceIds = currentIds
                     connectedDeviceNames = currentDevices.map { it.friendlyName ?: "Unknown" }
                     sendDeviceListMessage(currentDevices)
@@ -104,14 +143,15 @@ class ConnectIQQueryWorker(
                 }
             }
             
-            Log.i(TAG, "Worker stopped")
+            Log.i(TAG, "Worker stopped (isStopped = true)")
             Result.success()
             
         } catch (e: Exception) {
-            Log.e(TAG, "Worker error", e)
+            Log.e(TAG, "Worker crashed with exception", e)
             sendBroadcast("terminating|Worker exception: ${e.message}")
             Result.failure()
         } finally {
+            Log.i(TAG, "Worker cleanup starting...")
             connectIQService.setMessageCallback(null)
             connectIQService.setDeviceChangeCallback(null)
             Log.i(TAG, "Worker cleanup complete")
@@ -137,6 +177,7 @@ class ConnectIQQueryWorker(
     }
     
     private fun createForegroundInfo(): ForegroundInfo {
+        Log.d(TAG, "createForegroundInfo() called")
         createNotificationChannel()
         
         // Intent to open MainActivity
@@ -163,6 +204,8 @@ class ConnectIQQueryWorker(
         val title = "Garmin Activity Listener"
         val contentText = buildContentText()
         val bigText = buildBigText()
+        
+        Log.d(TAG, "Notification content: $contentText")
         
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setContentTitle(title)
@@ -243,6 +286,8 @@ class ConnectIQQueryWorker(
             val notificationManager =
                 applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
+            
+            Log.d(TAG, "Notification channel created: $CHANNEL_ID")
         }
     }
     
@@ -260,17 +305,22 @@ class ConnectIQQueryWorker(
         devices.forEach { device ->
             parts.add(device.friendlyName ?: "Unknown")
         }
-        sendBroadcast(parts.joinToString("|"))
+        val message = parts.joinToString("|")
+        Log.i(TAG, "Sending device list: $message")
+        sendBroadcast(message)
     }
     
     private fun sendBroadcast(message: String) {
         try {
+            Log.d(TAG, "sendBroadcast() called with: $message")
+            
             // 1. Explicit broadcast for MainActivity
             val explicitIntent = Intent(ActivityStatusCheckReceiver.ACTION_MESSAGE).apply {
                 putExtra(ActivityStatusCheckReceiver.EXTRA_MESSAGE, message)
                 setPackage(applicationContext.packageName)
             }
             applicationContext.sendBroadcast(explicitIntent)
+            Log.d(TAG, "Explicit broadcast sent for MainActivity")
             
             // 2. Implicit broadcast for Tasker
             val implicitIntent = Intent(ActivityStatusCheckReceiver.ACTION_MESSAGE).apply {
@@ -278,6 +328,7 @@ class ConnectIQQueryWorker(
                 addCategory(Intent.CATEGORY_DEFAULT)
             }
             applicationContext.sendBroadcast(implicitIntent)
+            Log.d(TAG, "Implicit broadcast sent for Tasker")
             
         } catch (e: Exception) {
             Log.e(TAG, "Broadcast failed", e)

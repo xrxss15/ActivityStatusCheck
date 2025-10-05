@@ -11,6 +11,11 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Foreground service permissions (REQUIRED for WorkManager setForeground) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission
         android:name="android.permission.BLUETOOTH"
         android:maxSdkVersion="30" />
@@ -29,7 +34,6 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <permission
         android:name="net.xrxss15.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
@@ -71,6 +75,14 @@
             </intent-filter>
         </receiver>
 
+        <!-- WorkManager's foreground service - REQUIRED for setForeground() to show notification -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:directBootAware="false"
+            android:enabled="@bool/enable_system_foreground_service_default"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="net.xrxss15.androidx-startup"
@@ -100,11 +112,6 @@
             android:enabled="@bool/enable_system_job_service_default"
             android:exported="true"
             android:permission="android.permission.BIND_JOB_SERVICE" />
-        <service
-            android:name="androidx.work.impl.foreground.SystemForegroundService"
-            android:directBootAware="false"
-            android:enabled="@bool/enable_system_foreground_service_default"
-            android:exported="false" />
 
         <receiver
             android:name="androidx.work.impl.utils.ForceStopRunnable$BroadcastReceiver"

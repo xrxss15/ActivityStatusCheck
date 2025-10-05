@@ -226,6 +226,9 @@ class MainActivity : Activity() {
             needs.add(Manifest.permission.BLUETOOTH_SCAN)
             needs.add(Manifest.permission.BLUETOOTH_CONNECT)
         }
+        if (Build.VERSION.SDK_INT >= 33) {
+            needs.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
         return needs.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }
     }
 
@@ -234,6 +237,9 @@ class MainActivity : Activity() {
         if (Build.VERSION.SDK_INT >= 31) {
             perms.add(Manifest.permission.BLUETOOTH_SCAN)
             perms.add(Manifest.permission.BLUETOOTH_CONNECT)
+        }
+        if (Build.VERSION.SDK_INT >= 33) {
+            perms.add(Manifest.permission.POST_NOTIFICATIONS)
         }
         ActivityCompat.requestPermissions(this, perms.toTypedArray(), 100)
         appendLog("[${ts()}] Requesting permissions...")

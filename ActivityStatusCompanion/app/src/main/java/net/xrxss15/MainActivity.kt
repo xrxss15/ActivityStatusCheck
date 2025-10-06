@@ -71,24 +71,24 @@ class MainActivity : Activity() {
     private fun initializeSDK() {
         appendLog("[${ts()}] Initializing ConnectIQ SDK...")
         
-        Thread {
+        // Initialize on Main thread via Handler (small delay to not block onCreate)
+        handler.postDelayed({
             val success = connectIQService.initializeForWorker(applicationContext)
-            handler.post {
-                if (success) {
-                    appendLog("[${ts()}] ✓ SDK initialized successfully")
-                    
-                    if (isBatteryOptimizationDisabled()) {
-                        startListener()
-                    } else {
-                        appendLog("⚠ Battery optimization is enabled")
-                        appendLog("Press 'Battery Settings' to allow background running")
-                    }
+            
+            if (success) {
+                appendLog("[${ts()}] ✓ SDK initialized successfully")
+                
+                if (isBatteryOptimizationDisabled()) {
+                    startListener()
                 } else {
-                    appendLog("[${ts()}] ✗ SDK initialization failed")
-                    appendLog("Make sure Garmin Connect Mobile is installed and running")
+                    appendLog("⚠ Battery optimization is enabled")
+                    appendLog("Press 'Battery Settings' to allow background running")
                 }
+            } else {
+                appendLog("[${ts()}] ✗ SDK initialization failed")
+                appendLog("Make sure Garmin Connect Mobile is installed and running")
             }
-        }.start()
+        }, 100)
     }
 
     private fun createUI() {
@@ -370,9 +370,7 @@ class MainActivity : Activity() {
         messageReceiver?.let {
             try {
                 unregisterReceiver(it)
-            } catch (e: IllegalArgumentException) {
-                // Already unregistered
-            }
+            } catch (e: IllegalArgumentException) {}
         }
         messageReceiver = null
     }

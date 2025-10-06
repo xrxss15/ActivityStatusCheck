@@ -13,10 +13,7 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.garmin.android.connectiq.IQDevice
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -40,31 +37,19 @@ class ConnectIQQueryWorker(
     private var lastMessageTime: Long = 0
 
     override suspend fun doWork(): Result {
-        Log.i(TAG, "========================================")
-        Log.i(TAG, "Worker starting - doWork() called")
-        Log.i(TAG, "========================================")
+        Log.i(TAG, "Worker starting")
         
         return try {
             setForeground(createForegroundInfo())
             Log.i(TAG, "✓ Running as foreground service")
             
-            // Initialize SDK on Main thread - BLOCKING call
-            Log.i(TAG, "Initializing SDK on Main thread...")
-            val sdkInitialized = withContext(Dispatchers.Main) {
-                // This BLOCKS the Main thread until SDK initializes
-                runBlocking {
-                    initializeSDK()
-                }
-            }
-            
-            if (!sdkInitialized) {
-                Log.e(TAG, "SDK initialization failed")
-                sendBroadcast("terminating|SDK initialization failed")
+            if (!connectIQService.isInitialized()) {
+                Log.e(TAG, "SDK not initialized - user must open app first")
+                sendBroadcast("terminating|Please open the app first to initialize")
                 return Result.failure()
             }
-            Log.i(TAG, "✓ SDK initialized successfully")
             
-            delay(1500)
+            delay(500)
             
             val devices = connectIQService.getConnectedRealDevices()
             Log.i(TAG, "Found ${devices.size} device(s)")
@@ -86,7 +71,7 @@ class ConnectIQQueryWorker(
                 Log.i(TAG, "Device change detected")
             }
             
-            Log.i(TAG, "Worker ready, listening for messages")
+            Log.i(TAG, "Worker ready")
             
             var loopCounter = 0
             var updateCounter = 0
@@ -95,7 +80,7 @@ class ConnectIQQueryWorker(
                 loopCounter++
                 
                 if (loopCounter % 30 == 0) {
-                    Log.i(TAG, "Worker still running (${loopCounter}s elapsed)")
+                    Log.i(TAG, "Worker running (${loopCounter}s)")
                 }
                 
                 updateCounter++
@@ -108,7 +93,6 @@ class ConnectIQQueryWorker(
                 val currentIds = currentDevices.map { it.deviceIdentifier }.toSet()
                 
                 if (currentIds != lastDeviceIds) {
-                    Log.i(TAG, "Device list changed")
                     lastDeviceIds = currentIds
                     connectedDeviceNames = currentDevices.map { it.friendlyName ?: "Unknown" }
                     sendDeviceListMessage(currentDevices)
@@ -117,20 +101,19 @@ class ConnectIQQueryWorker(
                 }
             }
             
-            Log.i(TAG, "Worker stopped normally")
+            Log.i(TAG, "Worker stopped")
             sendBroadcast("terminating|Stopped by user")
             Result.success()
             
         } catch (e: CancellationException) {
-            Log.i(TAG, "Worker cancelled normally")
+            Log.i(TAG, "Worker cancelled")
             sendBroadcast("terminating|Stopped by user")
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Worker crashed", e)
-            sendBroadcast("terminating|Worker exception: ${e.message}")
+            Log.e(TAG, "Worker error", e)
+            sendBroadcast("terminating|${e.message}")
             Result.failure()
         } finally {
-            Log.i(TAG, "Worker cleanup")
             connectIQService.setMessageCallback(null)
             connectIQService.setDeviceChangeCallback(null)
         }
@@ -245,15 +228,6 @@ class ConnectIQQueryWorker(
                 applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
         }
-    }
-    
-    private fun initializeSDK(): Boolean {
-        if (!connectIQService.hasRequiredPermissions(applicationContext)) {
-            Log.e(TAG, "Missing permissions")
-            return false
-        }
-        
-        return connectIQService.initializeForWorker(applicationContext)
     }
     
     private fun sendDeviceListMessage(devices: List<IQDevice>) {

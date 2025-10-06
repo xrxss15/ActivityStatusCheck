@@ -36,6 +36,7 @@ class MainActivity : Activity() {
     
     private val handler = Handler(Looper.getMainLooper())
     private var messageReceiver: BroadcastReceiver? = null
+    private val connectIQService = ConnectIQService.getInstance()
 
     private fun ts(): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
     
@@ -56,18 +57,38 @@ class MainActivity : Activity() {
         createUI()
         registerBroadcastReceiver()
 
+        appendLog("Garmin Activity Listener - Debug Mode")
+        
         if (!hasRequiredPermissions()) {
             requestRequiredPermissions()
-        } else if (!isBatteryOptimizationDisabled()) {
-            appendLog("⚠ Battery optimization is enabled")
-            appendLog("Press 'Battery Settings' to allow background running")
         } else {
-            // Auto-start listener if permissions granted and battery optimization disabled
-            startListener()
+            initializeSDK()
         }
 
-        appendLog("Garmin Activity Listener - Debug Mode")
         updateServiceStatus()
+    }
+
+    private fun initializeSDK() {
+        appendLog("[${ts()}] Initializing ConnectIQ SDK...")
+        
+        Thread {
+            val success = connectIQService.initializeForWorker(applicationContext)
+            handler.post {
+                if (success) {
+                    appendLog("[${ts()}] ✓ SDK initialized successfully")
+                    
+                    if (isBatteryOptimizationDisabled()) {
+                        startListener()
+                    } else {
+                        appendLog("⚠ Battery optimization is enabled")
+                        appendLog("Press 'Battery Settings' to allow background running")
+                    }
+                } else {
+                    appendLog("[${ts()}] ✗ SDK initialization failed")
+                    appendLog("Make sure Garmin Connect Mobile is installed and running")
+                }
+            }
+        }.start()
     }
 
     private fun createUI() {
@@ -333,8 +354,8 @@ class MainActivity : Activity() {
         if (requestCode == 100) {
             val allGranted = grantResults.all { it == PackageManager.PERMISSION_GRANTED }
             appendLog("[${ts()}] Permissions ${if (allGranted) "granted" else "denied"}")
-            if (allGranted && isBatteryOptimizationDisabled()) {
-                startListener()
+            if (allGranted) {
+                initializeSDK()
             }
         }
     }

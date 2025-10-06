@@ -56,17 +56,18 @@ class ConnectIQService private constructor() {
         return result
     }
 
-    // This MUST be called on a thread with a Looper (Main thread via Handler)
+    fun isInitialized(): Boolean {
+        return initialized.get()
+    }
+
     fun initializeForWorker(context: Context): Boolean {
         if (initialized.get()) {
-            log("Already initialized, returning true")
+            log("Already initialized")
             return true
         }
 
-        log("========================================")
         log("Starting ConnectIQ SDK initialization")
         log("Thread: ${Thread.currentThread().name}")
-        log("========================================")
 
         try {
             log("Creating ConnectIQ instance...")
@@ -79,14 +80,13 @@ class ConnectIQService private constructor() {
             log("Calling initialize()...")
             connectIQ?.initialize(context.applicationContext, false, object : ConnectIQListener {
                 override fun onSdkReady() {
-                    log("✓✓✓ onSdkReady() callback received!")
+                    log("✓✓✓ onSdkReady()")
                     initialized.set(true)
                     initLatch.countDown()
                 }
 
                 override fun onInitializeError(status: ConnectIQ.IQSdkErrorStatus?) {
-                    logError("✗✗✗ onInitializeError() callback received!")
-                    logError("Error status: $status")
+                    logError("✗✗✗ onInitializeError(): $status")
                     when (status) {
                         ConnectIQ.IQSdkErrorStatus.GCM_NOT_INSTALLED -> 
                             logError("  → Garmin Connect Mobile not installed")
@@ -94,7 +94,7 @@ class ConnectIQService private constructor() {
                             logError("  → Garmin Connect Mobile needs upgrade")
                         ConnectIQ.IQSdkErrorStatus.SERVICE_ERROR -> 
                             logError("  → Service error")
-                        else -> logError("  → Unknown error: $status")
+                        else -> logError("  → Unknown error")
                     }
                     initError = status
                     initialized.set(false)
@@ -102,70 +102,47 @@ class ConnectIQService private constructor() {
                 }
 
                 override fun onSdkShutDown() {
-                    log("onSdkShutDown() callback received")
+                    log("onSdkShutDown()")
                     initialized.set(false)
                 }
             })
-            log("✓ initialize() called, waiting for callback...")
+            log("✓ initialize() called, waiting...")
 
-            // Wait up to 15 seconds for SDK to initialize
             var elapsed = 0
             while (initLatch.count > 0 && elapsed < 15) {
-                log("Waiting... ${elapsed}s elapsed")
+                log("Waiting ${elapsed}s...")
                 val completed = initLatch.await(1, TimeUnit.SECONDS)
                 if (completed) {
-                    log("✓ Latch released after ${elapsed + 1}s")
+                    log("✓ Done after ${elapsed + 1}s")
                     break
                 }
                 elapsed++
             }
             
             if (initLatch.count > 0) {
-                logError("✗ SDK initialization TIMEOUT after 15 seconds")
-                logError("  Possible causes:")
-                logError("  - Garmin Connect Mobile not running")
-                logError("  - Bluetooth disabled")
-                logError("  - No Garmin device paired")
+                logError("✗ TIMEOUT after 15s")
                 return false
             }
             
-            log("========================================")
-            log("SDK initialization completed")
-            log("Result: ${initialized.get()}")
-            if (initError != null) {
-                logError("Error: $initError")
-            }
-            log("========================================")
-            
+            log("Initialization result: ${initialized.get()}")
             return initialized.get()
 
         } catch (e: Exception) {
-            logError("Exception during initialization: ${e.message}")
+            logError("Exception: ${e.message}")
             e.printStackTrace()
             return false
         }
     }
 
     fun getConnectedRealDevices(): List<IQDevice> {
-        val ciq = connectIQ
-        if (ciq == null) {
-            log("getConnectedRealDevices: connectIQ is null")
-            return emptyList()
-        }
+        val ciq = connectIQ ?: return emptyList()
         
         return try {
-            val devices = ciq.connectedDevices
-            if (devices == null) {
-                log("getConnectedRealDevices: connectedDevices is null")
-                return emptyList()
-            }
-            
-            val filtered = devices.filter { device ->
+            val devices = ciq.connectedDevices ?: return emptyList()
+            devices.filter { device ->
                 device.status == IQDevice.IQDeviceStatus.CONNECTED &&
                 device.deviceIdentifier > 0
             }
-            log("getConnectedRealDevices: ${filtered.size} connected devices")
-            filtered
         } catch (e: Exception) {
             logError("Error getting devices: ${e.message}")
             emptyList()

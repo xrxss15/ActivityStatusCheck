@@ -6,8 +6,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
@@ -15,12 +13,13 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.garmin.android.connectiq.IQDevice
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.coroutines.resume
 
 class ConnectIQQueryWorker(
     appContext: Context,
@@ -49,17 +48,12 @@ class ConnectIQQueryWorker(
             setForeground(createForegroundInfo())
             Log.i(TAG, "✓ Running as foreground service")
             
-            // Initialize SDK on Main thread using Handler
-            Log.i(TAG, "Initializing SDK...")
-            val sdkInitialized = suspendCancellableCoroutine<Boolean> { continuation ->
-                Handler(Looper.getMainLooper()).post {
-                    try {
-                        val result = initializeSDK()
-                        continuation.resume(result)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "SDK init exception", e)
-                        continuation.resume(false)
-                    }
+            // Initialize SDK on Main thread - BLOCKING call
+            Log.i(TAG, "Initializing SDK on Main thread...")
+            val sdkInitialized = withContext(Dispatchers.Main) {
+                // This BLOCKS the Main thread until SDK initializes
+                runBlocking {
+                    initializeSDK()
                 }
             }
             

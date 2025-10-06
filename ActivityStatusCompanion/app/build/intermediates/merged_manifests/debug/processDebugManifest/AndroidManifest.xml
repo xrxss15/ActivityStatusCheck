@@ -8,14 +8,22 @@
         android:minSdkVersion="24"
         android:targetSdkVersion="34" />
 
+    <!-- Network and Location Permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
-    <!-- Foreground service permissions (REQUIRED for WorkManager setForeground) -->
+    <!-- Foreground Service Permissions (Required for WorkManager setForeground) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <!-- Notification Permission (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Battery Optimization Exemption Permission -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Bluetooth Permissions -->
     <uses-permission
         android:name="android.permission.BLUETOOTH"
         android:maxSdkVersion="30" />
@@ -27,6 +35,7 @@
         android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
+    <!-- Hardware Features -->
     <uses-feature
         android:name="android.hardware.bluetooth_le"
         android:required="true" />
@@ -53,9 +62,12 @@
         android:icon="@android:drawable/sym_def_app_icon"
         android:label="Garmin Activity Listener"
         android:theme="@android:style/Theme.Material.Light" >
+
+        <!-- Main Activity -->
         <activity
             android:name="net.xrxss15.MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:screenOrientation="portrait" >
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -64,6 +76,7 @@
             </intent-filter>
         </activity>
 
+        <!-- Broadcast Receiver for Start/Stop Intents -->
         <receiver
             android:name="net.xrxss15.ActivityStatusCheckReceiver"
             android:exported="true" >
@@ -75,7 +88,7 @@
             </intent-filter>
         </receiver>
 
-        <!-- WorkManager's foreground service - REQUIRED for setForeground() to show notification -->
+        <!-- WorkManager Foreground Service (Required for setForeground) -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:directBootAware="false"

@@ -7,13 +7,18 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
+import android.provider.Settings
 import android.widget.*
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -22,8 +27,10 @@ class MainActivity : Activity() {
 
     private lateinit var logView: TextView
     private lateinit var scroll: ScrollView
+    private lateinit var statusText: TextView
     private lateinit var startBtn: Button
     private lateinit var stopBtn: Button
+    private lateinit var batteryBtn: Button
     private lateinit var copyBtn: Button
     private lateinit var clearBtn: Button
     
@@ -51,11 +58,16 @@ class MainActivity : Activity() {
 
         if (!hasRequiredPermissions()) {
             requestRequiredPermissions()
+        } else if (!isBatteryOptimizationDisabled()) {
+            appendLog("⚠ Battery optimization is enabled")
+            appendLog("Press 'Battery Settings' to allow background running")
+        } else {
+            // Auto-start listener if permissions granted and battery optimization disabled
+            startListener()
         }
 
         appendLog("Garmin Activity Listener - Debug Mode")
-        appendLog("")
-        appendLog("Press 'Start Listener' to begin")
+        updateServiceStatus()
     }
 
     private fun createUI() {
@@ -69,6 +81,13 @@ class MainActivity : Activity() {
                 setTypeface(null, android.graphics.Typeface.BOLD)
             })
 
+            statusText = TextView(this@MainActivity).apply {
+                text = "Status: Checking..."
+                textSize = 14f
+                setPadding(0, 8, 0, 8)
+            }
+            addView(statusText)
+
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 8, 0, 8)
@@ -78,10 +97,7 @@ class MainActivity : Activity() {
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
                         appendLog("[${ts()}] Starting listener...")
-                        val intent = Intent(ActivityStatusCheckReceiver.ACTION_START).apply {
-                            setPackage("net.xrxss15")
-                        }
-                        sendBroadcast(intent)
+                        startListener()
                     }
                 }
                 
@@ -90,10 +106,7 @@ class MainActivity : Activity() {
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
                         appendLog("[${ts()}] Stopping listener...")
-                        val intent = Intent(ActivityStatusCheckReceiver.ACTION_STOP).apply {
-                            setPackage("net.xrxss15")
-                        }
-                        sendBroadcast(intent)
+                        stopListener()
                     }
                 }
                 
@@ -101,9 +114,17 @@ class MainActivity : Activity() {
                 addView(stopBtn)
             })
 
+            batteryBtn = Button(this@MainActivity).apply {
+                text = "Battery Settings"
+                setOnClickListener {
+                    requestBatteryOptimizationExemption()
+                }
+            }
+            addView(batteryBtn)
+
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setPadding(0, 0, 0, 8)
+                setPadding(0, 8, 0, 8)
                 
                 copyBtn = Button(this@MainActivity).apply {
                     text = "Copy"
@@ -138,6 +159,66 @@ class MainActivity : Activity() {
         }
         
         setContentView(root)
+    }
+
+    private fun startListener() {
+        val intent = Intent(ActivityStatusCheckReceiver.ACTION_START).apply {
+            setPackage(packageName)
+        }
+        sendBroadcast(intent)
+        updateServiceStatus()
+    }
+
+    private fun stopListener() {
+        val intent = Intent(ActivityStatusCheckReceiver.ACTION_STOP).apply {
+            setPackage(packageName)
+        }
+        sendBroadcast(intent)
+        updateServiceStatus()
+    }
+
+    private fun isListenerRunning(): Boolean {
+        val workManager = WorkManager.getInstance(applicationContext)
+        val workInfos = workManager.getWorkInfosForUniqueWork("garmin_listener").get()
+        return workInfos.any { it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED }
+    }
+
+    private fun updateServiceStatus() {
+        handler.postDelayed({
+            val running = isListenerRunning()
+            statusText.text = if (running) {
+                "Status: ✓ Listener Running"
+            } else {
+                "Status: ✗ Listener Stopped"
+            }
+            startBtn.isEnabled = !running
+            stopBtn.isEnabled = running
+        }, 500)
+    }
+
+    private fun isBatteryOptimizationDisabled(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            return pm.isIgnoringBatteryOptimizations(packageName)
+        }
+        return true
+    }
+
+    private fun requestBatteryOptimizationExemption() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (!isBatteryOptimizationDisabled()) {
+                try {
+                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                    intent.data = Uri.parse("package:$packageName")
+                    startActivity(intent)
+                    appendLog("[${ts()}] Opening battery settings...")
+                } catch (e: Exception) {
+                    appendLog("[${ts()}] Failed to open battery settings")
+                }
+            } else {
+                appendLog("[${ts()}] Battery optimization already disabled")
+            }
+        }
     }
 
     private fun registerBroadcastReceiver() {
@@ -211,6 +292,8 @@ class MainActivity : Activity() {
                 }
             }
         }
+        
+        updateServiceStatus()
     }
 
     private fun appendLog(line: String) {
@@ -250,7 +333,15 @@ class MainActivity : Activity() {
         if (requestCode == 100) {
             val allGranted = grantResults.all { it == PackageManager.PERMISSION_GRANTED }
             appendLog("[${ts()}] Permissions ${if (allGranted) "granted" else "denied"}")
+            if (allGranted && isBatteryOptimizationDisabled()) {
+                startListener()
+            }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateServiceStatus()
     }
     
     override fun onDestroy() {

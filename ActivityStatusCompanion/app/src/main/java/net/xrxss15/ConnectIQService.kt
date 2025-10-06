@@ -3,8 +3,6 @@ package net.xrxss15
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import androidx.core.content.ContextCompat
 import com.garmin.android.connectiq.ConnectIQ
 import com.garmin.android.connectiq.ConnectIQ.ConnectIQListener
@@ -12,9 +10,6 @@ import com.garmin.android.connectiq.ConnectIQ.IQApplicationEventListener
 import com.garmin.android.connectiq.ConnectIQ.IQMessageStatus
 import com.garmin.android.connectiq.IQApp
 import com.garmin.android.connectiq.IQDevice
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -36,7 +31,6 @@ class ConnectIQService private constructor() {
     }
 
     private var connectIQ: ConnectIQ? = null
-    private val handler = Handler(Looper.getMainLooper())
     private val initialized = AtomicBoolean(false)
     private val knownDevices = mutableSetOf<IQDevice>()
     private var messageCallback: ((String, String, Long) -> Unit)? = null
@@ -71,7 +65,6 @@ class ConnectIQService private constructor() {
         log("========================================")
         log("Starting ConnectIQ SDK initialization")
         log("Thread: ${Thread.currentThread().name}")
-        log("Has Looper: ${Looper.myLooper() != null}")
         log("========================================")
 
         try {
@@ -88,11 +81,6 @@ class ConnectIQService private constructor() {
                     log("✓✓✓ onSdkReady() callback received!")
                     initialized.set(true)
                     initLatch.countDown()
-                    
-                    // Try to get devices immediately
-                    handler.postDelayed({
-                        registerListenersForAllDevices()
-                    }, 500)
                 }
 
                 override fun onInitializeError(status: ConnectIQ.IQSdkErrorStatus?) {
@@ -134,10 +122,6 @@ class ConnectIQService private constructor() {
             if (initLatch.count > 0) {
                 logError("✗ SDK initialization TIMEOUT after 15 seconds")
                 logError("  No callback received from ConnectIQ SDK")
-                logError("  Possible causes:")
-                logError("  - Garmin Connect Mobile not running")
-                logError("  - Bluetooth disabled")
-                logError("  - Missing permissions")
                 return false
             }
             

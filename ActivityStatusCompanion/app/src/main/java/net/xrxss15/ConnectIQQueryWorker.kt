@@ -13,10 +13,14 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.garmin.android.connectiq.IQDevice
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.coroutines.resume
 
 class ConnectIQQueryWorker(
     appContext: Context,
@@ -47,10 +51,13 @@ class ConnectIQQueryWorker(
             setForeground(createForegroundInfo())
             Log.i(TAG, "✓ Running as foreground service")
             
-            // Initialize SDK - this MUST be done on the coroutine thread
-            // The SDK will use Handler internally for callbacks
+            // Initialize SDK - run the blocking call in IO dispatcher
             Log.i(TAG, "Initializing SDK...")
-            if (!initializeSDK()) {
+            val sdkInitialized = withContext(Dispatchers.IO) {
+                initializeSDK()
+            }
+            
+            if (!sdkInitialized) {
                 Log.e(TAG, "SDK initialization failed")
                 sendBroadcast("terminating|SDK initialization failed")
                 return Result.failure()
@@ -121,10 +128,9 @@ class ConnectIQQueryWorker(
             Result.success()
             
         } catch (e: CancellationException) {
-            // This is normal cancellation when work is stopped
             Log.i(TAG, "Worker cancelled normally")
             sendBroadcast("terminating|Stopped by user")
-            throw e // Re-throw to let WorkManager handle it properly
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Worker crashed with unexpected exception", e)
             sendBroadcast("terminating|Worker exception: ${e.message}")

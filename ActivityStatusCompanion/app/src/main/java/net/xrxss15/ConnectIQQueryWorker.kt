@@ -12,7 +12,9 @@ import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.garmin.android.connectiq.IQDevice
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -41,12 +43,17 @@ class ConnectIQQueryWorker(
         Log.i(TAG, "========================================")
         
         return try {
-            // Mark as foreground service immediately - REQUIRED for long-running workers
+            // Mark as foreground service immediately
             Log.i(TAG, "Calling setForeground()...")
             setForeground(createForegroundInfo())
             Log.i(TAG, "✓ Running as foreground service")
             
-            if (!initializeSDK()) {
+            // Initialize SDK on Main thread (required by Garmin SDK)
+            val sdkInitialized = withContext(Dispatchers.Main) {
+                initializeSDK()
+            }
+            
+            if (!sdkInitialized) {
                 sendBroadcast("terminating|SDK initialization failed")
                 return Result.failure()
             }
@@ -89,7 +96,7 @@ class ConnectIQQueryWorker(
                     Log.i(TAG, "Worker still running (${loopCounter}s elapsed)")
                 }
                 
-                // Update notification every 5 seconds if we have a message
+                // Update notification every 5 seconds
                 updateCounter++
                 if (updateCounter >= 5) {
                     updateCounter = 0
@@ -142,7 +149,6 @@ class ConnectIQQueryWorker(
         return SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(timestamp))
     }
     
-    // Based on official Android example: https://developer.android.com/develop/background-work/background-tasks/persistent/how-to/long-running
     private fun createForegroundInfo(): ForegroundInfo {
         createNotificationChannel()
         
@@ -152,10 +158,8 @@ class ConnectIQQueryWorker(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         
-        // Create cancel PendingIntent using WorkManager API
-        val cancelIntent = applicationContext.let {
-            androidx.work.WorkManager.getInstance(it).createCancelPendingIntent(id)
-        }
+        val cancelIntent = androidx.work.WorkManager.getInstance(applicationContext)
+            .createCancelPendingIntent(id)
         
         val contentText = buildContentText()
         val bigText = buildBigText()
@@ -176,8 +180,6 @@ class ConnectIQQueryWorker(
             .addAction(android.R.drawable.ic_delete, "Stop", cancelIntent)
             .build()
         
-        // Return ForegroundInfo with notification ID and notification
-        // For Android 14+, must include foreground service type
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ForegroundInfo(
                 NOTIFICATION_ID,

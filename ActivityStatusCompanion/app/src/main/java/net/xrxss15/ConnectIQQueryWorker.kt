@@ -36,22 +36,21 @@ class ConnectIQQueryWorker(
     private var lastMessageTime: Long = 0
 
     override suspend fun doWork(): Result {
-        Log.i(TAG, "Worker starting")
+        Log.i(TAG, "========================================")
+        Log.i(TAG, "Worker starting - doWork() called")
+        Log.i(TAG, "========================================")
         
         return try {
-            // Try to become foreground
-            try {
-                setForeground(createForegroundInfo())
-                Log.i(TAG, "✓ Running as foreground service")
-            } catch (e: Exception) {
-                Log.w(TAG, "Cannot run as foreground (expected from background), continuing anyway", e)
-                // Continue without foreground - will work but may be killed on low memory
-            }
+            // Mark as foreground service immediately - REQUIRED for long-running workers
+            Log.i(TAG, "Calling setForeground()...")
+            setForeground(createForegroundInfo())
+            Log.i(TAG, "✓ Running as foreground service")
             
             if (!initializeSDK()) {
                 sendBroadcast("terminating|SDK initialization failed")
                 return Result.failure()
             }
+            Log.i(TAG, "✓ SDK initialized successfully")
             
             delay(1500)
             
@@ -61,61 +60,67 @@ class ConnectIQQueryWorker(
             lastDeviceIds = devices.map { it.deviceIdentifier }.toSet()
             connectedDeviceNames = devices.map { it.friendlyName ?: "Unknown" }
             
-            try {
-                setForeground(createForegroundInfo())
-            } catch (ignored: Exception) {}
-            
+            // Update notification with devices
+            setForeground(createForegroundInfo())
             sendDeviceListMessage(devices)
             
             connectIQService.setMessageCallback { payload, deviceName, timestamp ->
+                Log.i(TAG, "MESSAGE RECEIVED from $deviceName")
                 lastMessage = parseMessage(payload, deviceName)
                 lastMessageTime = timestamp
                 sendBroadcast("message_received|$deviceName|$payload")
             }
             
             connectIQService.setDeviceChangeCallback {
-                // Handled in main loop
+                Log.i(TAG, "Device change detected")
             }
             
             Log.i(TAG, "Worker ready, listening for messages")
             
+            // Indefinite loop for long-running worker
+            var loopCounter = 0
             var updateCounter = 0
             while (!isStopped) {
                 delay(1000)
+                loopCounter++
                 
-                updateCounter++
-                if (updateCounter >= 5 && lastMessage != null) {
-                    updateCounter = 0
-                    try {
-                        setForeground(createForegroundInfo())
-                    } catch (ignored: Exception) {}
+                // Log every 30 seconds
+                if (loopCounter % 30 == 0) {
+                    Log.i(TAG, "Worker still running (${loopCounter}s elapsed)")
                 }
                 
+                // Update notification every 5 seconds if we have a message
+                updateCounter++
+                if (updateCounter >= 5) {
+                    updateCounter = 0
+                    setForeground(createForegroundInfo())
+                }
+                
+                // Check for device changes
                 val currentDevices = connectIQService.getConnectedRealDevices()
                 val currentIds = currentDevices.map { it.deviceIdentifier }.toSet()
                 
                 if (currentIds != lastDeviceIds) {
+                    Log.i(TAG, "Device list changed")
                     lastDeviceIds = currentIds
                     connectedDeviceNames = currentDevices.map { it.friendlyName ?: "Unknown" }
                     sendDeviceListMessage(currentDevices)
                     connectIQService.registerListenersForAllDevices()
-                    try {
-                        setForeground(createForegroundInfo())
-                    } catch (ignored: Exception) {}
+                    setForeground(createForegroundInfo())
                 }
             }
             
-            Log.i(TAG, "Worker stopped")
+            Log.i(TAG, "Worker stopped (isStopped = true)")
             Result.success()
             
         } catch (e: Exception) {
-            Log.e(TAG, "Worker error", e)
+            Log.e(TAG, "Worker crashed", e)
             sendBroadcast("terminating|Worker exception: ${e.message}")
             Result.failure()
         } finally {
+            Log.i(TAG, "Worker cleanup")
             connectIQService.setMessageCallback(null)
             connectIQService.setDeviceChangeCallback(null)
-            Log.i(TAG, "Worker cleanup complete")
         }
     }
     
@@ -137,6 +142,7 @@ class ConnectIQQueryWorker(
         return SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(timestamp))
     }
     
+    // Based on official Android example: https://developer.android.com/develop/background-work/background-tasks/persistent/how-to/long-running
     private fun createForegroundInfo(): ForegroundInfo {
         createNotificationChannel()
         
@@ -146,13 +152,10 @@ class ConnectIQQueryWorker(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         
-        val stopIntent = Intent(ActivityStatusCheckReceiver.ACTION_STOP).apply {
-            setPackage(applicationContext.packageName)
+        // Create cancel PendingIntent using WorkManager API
+        val cancelIntent = applicationContext.let {
+            androidx.work.WorkManager.getInstance(it).createCancelPendingIntent(id)
         }
-        val stopPendingIntent = PendingIntent.getBroadcast(
-            applicationContext, 1, stopIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
         
         val contentText = buildContentText()
         val bigText = buildBigText()
@@ -160,6 +163,7 @@ class ConnectIQQueryWorker(
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setContentTitle("Garmin Activity Listener")
             .setContentText(contentText)
+            .setTicker("Listening for Garmin messages")
             .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setColor(0xFF4CAF50.toInt())
             .setOngoing(true)
@@ -169,10 +173,20 @@ class ConnectIQQueryWorker(
             .setContentIntent(openPendingIntent)
             .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
             .addAction(android.R.drawable.ic_menu_view, "Open", openPendingIntent)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopPendingIntent)
+            .addAction(android.R.drawable.ic_delete, "Stop", cancelIntent)
             .build()
         
-        return ForegroundInfo(NOTIFICATION_ID, notification)
+        // Return ForegroundInfo with notification ID and notification
+        // For Android 14+, must include foreground service type
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ForegroundInfo(
+                NOTIFICATION_ID,
+                notification,
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        } else {
+            ForegroundInfo(NOTIFICATION_ID, notification)
+        }
     }
     
     private fun buildContentText(): String {

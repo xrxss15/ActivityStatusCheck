@@ -56,6 +56,7 @@ class ConnectIQService private constructor() {
         return result
     }
 
+    // This MUST be called on a thread with a Looper (Main thread via Handler)
     fun initializeForWorker(context: Context): Boolean {
         if (initialized.get()) {
             log("Already initialized, returning true")
@@ -121,7 +122,10 @@ class ConnectIQService private constructor() {
             
             if (initLatch.count > 0) {
                 logError("✗ SDK initialization TIMEOUT after 15 seconds")
-                logError("  No callback received from ConnectIQ SDK")
+                logError("  Possible causes:")
+                logError("  - Garmin Connect Mobile not running")
+                logError("  - Bluetooth disabled")
+                logError("  - No Garmin device paired")
                 return false
             }
             

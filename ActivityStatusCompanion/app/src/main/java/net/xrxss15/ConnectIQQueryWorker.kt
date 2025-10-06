@@ -6,6 +6,8 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
@@ -13,10 +15,8 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.garmin.android.connectiq.IQDevice
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -46,15 +46,21 @@ class ConnectIQQueryWorker(
         Log.i(TAG, "========================================")
         
         return try {
-            // Mark as foreground service immediately
-            Log.i(TAG, "Calling setForeground()...")
             setForeground(createForegroundInfo())
             Log.i(TAG, "✓ Running as foreground service")
             
-            // Initialize SDK - run the blocking call in IO dispatcher
+            // Initialize SDK on Main thread using Handler
             Log.i(TAG, "Initializing SDK...")
-            val sdkInitialized = withContext(Dispatchers.IO) {
-                initializeSDK()
+            val sdkInitialized = suspendCancellableCoroutine<Boolean> { continuation ->
+                Handler(Looper.getMainLooper()).post {
+                    try {
+                        val result = initializeSDK()
+                        continuation.resume(result)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "SDK init exception", e)
+                        continuation.resume(false)
+                    }
+                }
             }
             
             if (!sdkInitialized) {
@@ -64,7 +70,6 @@ class ConnectIQQueryWorker(
             }
             Log.i(TAG, "✓ SDK initialized successfully")
             
-            // Wait a bit for SDK to settle
             delay(1500)
             
             val devices = connectIQService.getConnectedRealDevices()
@@ -73,7 +78,6 @@ class ConnectIQQueryWorker(
             lastDeviceIds = devices.map { it.deviceIdentifier }.toSet()
             connectedDeviceNames = devices.map { it.friendlyName ?: "Unknown" }
             
-            // Update notification with devices
             setForeground(createForegroundInfo())
             sendDeviceListMessage(devices)
             
@@ -90,26 +94,22 @@ class ConnectIQQueryWorker(
             
             Log.i(TAG, "Worker ready, listening for messages")
             
-            // Indefinite loop for long-running worker
             var loopCounter = 0
             var updateCounter = 0
             while (!isStopped) {
                 delay(1000)
                 loopCounter++
                 
-                // Log every 30 seconds
                 if (loopCounter % 30 == 0) {
                     Log.i(TAG, "Worker still running (${loopCounter}s elapsed)")
                 }
                 
-                // Update notification every 5 seconds
                 updateCounter++
                 if (updateCounter >= 5) {
                     updateCounter = 0
                     setForeground(createForegroundInfo())
                 }
                 
-                // Check for device changes
                 val currentDevices = connectIQService.getConnectedRealDevices()
                 val currentIds = currentDevices.map { it.deviceIdentifier }.toSet()
                 
@@ -123,7 +123,7 @@ class ConnectIQQueryWorker(
                 }
             }
             
-            Log.i(TAG, "Worker stopped normally (isStopped = true)")
+            Log.i(TAG, "Worker stopped normally")
             sendBroadcast("terminating|Stopped by user")
             Result.success()
             
@@ -132,7 +132,7 @@ class ConnectIQQueryWorker(
             sendBroadcast("terminating|Stopped by user")
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Worker crashed with unexpected exception", e)
+            Log.e(TAG, "Worker crashed", e)
             sendBroadcast("terminating|Worker exception: ${e.message}")
             Result.failure()
         } finally {

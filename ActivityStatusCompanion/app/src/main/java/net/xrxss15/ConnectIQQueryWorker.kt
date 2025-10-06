@@ -13,9 +13,7 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.garmin.android.connectiq.IQDevice
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -49,21 +47,18 @@ class ConnectIQQueryWorker(
             setForeground(createForegroundInfo())
             Log.i(TAG, "✓ Running as foreground service")
             
-            // Initialize SDK on Main thread (required by Garmin SDK)
+            // Initialize SDK - this MUST be done on the coroutine thread
+            // The SDK will use Handler internally for callbacks
             Log.i(TAG, "Initializing SDK...")
-            val sdkInitialized = withContext(Dispatchers.Main) {
-                initializeSDK()
-            }
-            
-            if (!sdkInitialized) {
+            if (!initializeSDK()) {
                 Log.e(TAG, "SDK initialization failed")
                 sendBroadcast("terminating|SDK initialization failed")
                 return Result.failure()
             }
             Log.i(TAG, "✓ SDK initialized successfully")
             
-            // Wait for SDK to be fully ready
-            delay(2000)
+            // Wait a bit for SDK to settle
+            delay(1500)
             
             val devices = connectIQService.getConnectedRealDevices()
             Log.i(TAG, "Found ${devices.size} device(s)")

@@ -12,6 +12,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.garmin.android.connectiq.IQDevice
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -49,17 +50,20 @@ class ConnectIQQueryWorker(
             Log.i(TAG, "✓ Running as foreground service")
             
             // Initialize SDK on Main thread (required by Garmin SDK)
+            Log.i(TAG, "Initializing SDK...")
             val sdkInitialized = withContext(Dispatchers.Main) {
                 initializeSDK()
             }
             
             if (!sdkInitialized) {
+                Log.e(TAG, "SDK initialization failed")
                 sendBroadcast("terminating|SDK initialization failed")
                 return Result.failure()
             }
             Log.i(TAG, "✓ SDK initialized successfully")
             
-            delay(1500)
+            // Wait for SDK to be fully ready
+            delay(2000)
             
             val devices = connectIQService.getConnectedRealDevices()
             Log.i(TAG, "Found ${devices.size} device(s)")
@@ -117,11 +121,17 @@ class ConnectIQQueryWorker(
                 }
             }
             
-            Log.i(TAG, "Worker stopped (isStopped = true)")
+            Log.i(TAG, "Worker stopped normally (isStopped = true)")
+            sendBroadcast("terminating|Stopped by user")
             Result.success()
             
+        } catch (e: CancellationException) {
+            // This is normal cancellation when work is stopped
+            Log.i(TAG, "Worker cancelled normally")
+            sendBroadcast("terminating|Stopped by user")
+            throw e // Re-throw to let WorkManager handle it properly
         } catch (e: Exception) {
-            Log.e(TAG, "Worker crashed", e)
+            Log.e(TAG, "Worker crashed with unexpected exception", e)
             sendBroadcast("terminating|Worker exception: ${e.message}")
             Result.failure()
         } finally {

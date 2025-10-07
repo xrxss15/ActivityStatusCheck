@@ -30,6 +30,10 @@ class ConnectIQService private constructor() {
 
     private var connectIQ: ConnectIQ? = null
     private val knownDevices = mutableSetOf<IQDevice>()
+    
+    // CRITICAL: Store listeners to prevent GC!
+    private val appListeners = mutableMapOf<String, IQApplicationEventListener>()
+    
     private var messageCallback: ((String, String, Long) -> Unit)? = null
     private var deviceChangeCallback: (() -> Unit)? = null
 
@@ -70,7 +74,6 @@ class ConnectIQService private constructor() {
         }
     }
 
-    // FROM YOUR ORIGINAL WORKING CODE!
     fun refreshAndRegisterDevices() {
         val ciq = connectIQ ?: return
         
@@ -79,7 +82,7 @@ class ConnectIQService private constructor() {
         } catch (_: InterruptedException) {}
         
         val all = try {
-            ciq.knownDevices // <-- THIS is the key! Not just connectedDevices!
+            ciq.knownDevices
         } catch (e: Exception) {
             log("knownDevices threw: ${e.message}")
             emptyList()
@@ -106,37 +109,59 @@ class ConnectIQService private constructor() {
     fun registerListenersForAllDevices() {
         val devices = getConnectedRealDevices()
         log("Registering ${devices.size} device(s)")
+        
         knownDevices.clear()
         knownDevices.addAll(devices)
-        devices.forEach { registerListenerForDevice(it) }
+        
+        devices.forEach { device ->
+            registerListenerForDevice(device)
+        }
+        
         deviceChangeCallback?.invoke()
     }
 
     private fun registerListenerForDevice(device: IQDevice) {
         val ciq = connectIQ ?: return
         val app = IQApp(APP_UUID)
+        
+        // Key to store listener - prevents GC!
+        val appKey = "${device.deviceIdentifier}:$APP_UUID"
+        
+        // Check if already registered
+        if (appListeners.containsKey(appKey)) {
+            log("Already registered for ${device.friendlyName}")
+            return
+        }
+        
+        // Create and STORE the listener
+        val appListener = IQApplicationEventListener { dev, iqApp, messages, status ->
+            if (dev == null || messages.isNullOrEmpty()) return@IQApplicationEventListener
+            
+            messages.forEach { msg ->
+                val payload = msg.toString()
+                val deviceName = dev.friendlyName ?: "Unknown"
+                log("Message from $deviceName: $payload")
+                
+                // Call the callback!
+                messageCallback?.invoke(payload, deviceName, System.currentTimeMillis())
+            }
+        }
+        
         try {
-            ciq.registerForAppEvents(device, app, object : IQApplicationEventListener {
-                override fun onMessageReceived(
-                    device: IQDevice?, app: IQApp?, messages: MutableList<Any>?, status: IQMessageStatus?
-                ) {
-                    if (device == null || messages.isNullOrEmpty()) return
-                    messages.forEach { msg ->
-                        val payload = msg.toString()
-                        val deviceName = device.friendlyName ?: "Unknown"
-                        log("Message from $deviceName: $payload")
-                        messageCallback?.invoke(payload, deviceName, System.currentTimeMillis())
-                    }
-                }
-            })
-            log("✓ Listener for ${device.friendlyName}")
+            ciq.registerForAppEvents(device, app, appListener)
+            
+            // CRITICAL: Store reference to prevent GC!
+            appListeners[appKey] = appListener
+            
+            log("✓ Registered app listener for ${device.friendlyName}")
         } catch (e: Exception) {
-            logError("Failed listener: ${e.message}")
+            logError("Failed to register app listener: ${e.message}")
         }
     }
 
     fun setMessageCallback(callback: ((String, String, Long) -> Unit)?) {
         messageCallback = callback
+        log("Message callback ${if (callback != null) "set" else "cleared"}")
     }
 
     fun setDeviceChangeCallback(callback: (() -> Unit)?) {
@@ -144,6 +169,8 @@ class ConnectIQService private constructor() {
     }
 
     fun shutdown() {
+        // Unregister all app listeners
+        appListeners.clear()
         knownDevices.clear()
         messageCallback = null
         deviceChangeCallback = null

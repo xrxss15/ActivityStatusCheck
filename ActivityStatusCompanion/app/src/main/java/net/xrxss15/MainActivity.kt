@@ -28,15 +28,13 @@ class MainActivity : Activity() {
     private lateinit var logView: TextView
     private lateinit var scroll: ScrollView
     private lateinit var statusText: TextView
-    private lateinit var startBtn: Button
-    private lateinit var stopBtn: Button
     private lateinit var batteryBtn: Button
     private lateinit var copyBtn: Button
     private lateinit var clearBtn: Button
+    private lateinit var exitBtn: Button
     
     private val handler = Handler(Looper.getMainLooper())
     private var messageReceiver: BroadcastReceiver? = null
-    private val connectIQService = ConnectIQService.getInstance()
 
     private fun ts(): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
     
@@ -54,50 +52,43 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Check if launched from notification Exit button
+        if (intent.getBooleanExtra("EXIT_APP", false)) {
+            exitApp()
+            return
+        }
+
         createUI()
         registerBroadcastReceiver()
 
-        appendLog("Garmin Activity Listener - Debug Mode")
+        appendLog("Garmin Activity Listener")
         
         if (!hasRequiredPermissions()) {
             requestRequiredPermissions()
         } else {
-            initializeSDK()
+            startListenerService()
         }
 
         updateServiceStatus()
     }
 
-    private fun initializeSDK() {
-        appendLog("[${ts()}] Initializing ConnectIQ SDK...")
-        
-        connectIQService.initializeSdkIfNeeded(this) {
-            handler.post {
-                appendLog("[${ts()}] ✓ SDK initialized successfully")
-                
-                connectIQService.setMessageCallback { payload, deviceName, _ ->
-                    val broadcast = "message_received|$deviceName|$payload"
-                    handleGarminMessage(broadcast)
-                }
-                
-                connectIQService.registerListenersForAllDevices()
-                
-                handler.postDelayed({
-                    val devices = connectIQService.getConnectedRealDevices()
-                    appendLog("[${ts()}] Found ${devices.size} connected device(s)")
-                    devices.forEach { 
-                        appendLog("[${ts()}]   • ${it.friendlyName}")
-                    }
-                }, 1000)
-                
-                if (isBatteryOptimizationDisabled()) {
-                    startListener()
-                } else {
-                    appendLog("⚠ Battery optimization is enabled")
-                    appendLog("Press 'Battery Settings' to allow background running")
-                }
-            }
+    private fun startListenerService() {
+        if (!isBatteryOptimizationDisabled()) {
+            appendLog("⚠ Battery optimization is enabled")
+            appendLog("Press 'Battery Settings' to allow background running")
         }
+        
+        appendLog("[${ts()}] Starting background listener...")
+        
+        // Start the Worker - it will handle SDK init and everything
+        val intent = Intent(ActivityStatusCheckReceiver.ACTION_START).apply {
+            setPackage(packageName)
+        }
+        sendBroadcast(intent)
+        
+        handler.postDelayed({
+            updateServiceStatus()
+        }, 1000)
     }
 
     private fun createUI() {
@@ -106,70 +97,66 @@ class MainActivity : Activity() {
             setPadding(16, 16, 16, 16)
 
             addView(TextView(this@MainActivity).apply {
-                text = "Garmin Activity Listener\nDebug Mode"
+                text = "Garmin Activity Listener"
                 textSize = 16f
                 setTypeface(null, android.graphics.Typeface.BOLD)
             })
 
             statusText = TextView(this@MainActivity).apply {
-                text = "Status: Checking..."
+                text = "Status: Initializing..."
                 textSize = 14f
                 setPadding(0, 8, 0, 8)
             }
             addView(statusText)
 
+            // Top row: Battery Settings | Exit
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 8, 0, 8)
                 
-                startBtn = Button(this@MainActivity).apply {
-                    text = "Start Listener"
+                batteryBtn = Button(this@MainActivity).apply {
+                    text = "Battery Settings"
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
-                        appendLog("[${ts()}] Starting listener...")
-                        startListener()
+                        requestBatteryOptimizationExemption()
                     }
                 }
                 
-                stopBtn = Button(this@MainActivity).apply {
-                    text = "Stop Listener"
+                exitBtn = Button(this@MainActivity).apply {
+                    text = "Exit"
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
-                        appendLog("[${ts()}] Stopping listener...")
-                        stopListener()
+                        appendLog("[${ts()}] Exiting app...")
+                        exitApp()
                     }
                 }
                 
-                addView(startBtn)
-                addView(stopBtn)
+                addView(batteryBtn)
+                addView(exitBtn)
             })
 
-            batteryBtn = Button(this@MainActivity).apply {
-                text = "Battery Settings"
-                setOnClickListener {
-                    requestBatteryOptimizationExemption()
-                }
-            }
-            addView(batteryBtn)
-
+            // Bottom row: Copy Log | Clear Log
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setPadding(0, 8, 0, 8)
+                setPadding(0, 0, 0, 8)
                 
                 copyBtn = Button(this@MainActivity).apply {
-                    text = "Copy"
+                    text = "Copy Log"
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
                         val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
                         cm.setPrimaryClip(android.content.ClipData.newPlainText("log", logView.text))
-                        Toast.makeText(this@MainActivity, "Copied", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@MainActivity, "Log copied", Toast.LENGTH_SHORT).show()
                     }
                 }
                 
                 clearBtn = Button(this@MainActivity).apply {
-                    text = "Clear"
+                    text = "Clear Log"
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                    setOnClickListener { logView.text = "" }
+                    setOnClickListener { 
+                        logView.text = ""
+                        appendLog("Garmin Activity Listener")
+                    }
                 }
                 
                 addView(copyBtn)
@@ -191,20 +178,16 @@ class MainActivity : Activity() {
         setContentView(root)
     }
 
-    private fun startListener() {
-        val intent = Intent(ActivityStatusCheckReceiver.ACTION_START).apply {
-            setPackage(packageName)
-        }
-        sendBroadcast(intent)
-        updateServiceStatus()
-    }
-
-    private fun stopListener() {
+    private fun exitApp() {
+        // Stop the worker
         val intent = Intent(ActivityStatusCheckReceiver.ACTION_STOP).apply {
             setPackage(packageName)
         }
         sendBroadcast(intent)
-        updateServiceStatus()
+        
+        // Close app
+        finishAndRemoveTask()
+        System.exit(0)
     }
 
     private fun isListenerRunning(): Boolean {
@@ -217,12 +200,10 @@ class MainActivity : Activity() {
         handler.postDelayed({
             val running = isListenerRunning()
             statusText.text = if (running) {
-                "Status: ✓ Listener Running"
+                "Status: ✓ Listener Active"
             } else {
-                "Status: ✗ Listener Stopped"
+                "Status: ✗ Listener Inactive"
             }
-            startBtn.isEnabled = !running
-            stopBtn.isEnabled = running
         }, 500)
     }
 
@@ -274,12 +255,16 @@ class MainActivity : Activity() {
         if (parts.isEmpty()) return
         
         when (parts[0]) {
+            "sdk_initialized" -> {
+                appendLog("[${ts()}] ✓ SDK initialized successfully")
+            }
+            
             "devices" -> {
                 if (parts.size >= 2) {
                     val count = parts[1].toIntOrNull() ?: 0
-                    appendLog("[${ts()}] DEVICES: $count")
+                    appendLog("[${ts()}] Found ${count} connected device(s)")
                     for (i in 2 until parts.size) {
-                        appendLog("[${ts()}]   ${parts[i]}")
+                        appendLog("[${ts()}]   • ${parts[i]}")
                     }
                 }
             }
@@ -287,7 +272,8 @@ class MainActivity : Activity() {
             "message_received" -> {
                 if (parts.size >= 6) {
                     appendLog("")
-                    appendLog("MESSAGE RECEIVED")
+                    appendLog("━━━━━━━━━━━━━━━━━━━━━━━━")
+                    appendLog("ACTIVITY EVENT")
                     appendLog("Device: ${parts[1]}")
                     appendLog("Received: ${formatTimestamp(System.currentTimeMillis())}")
                     
@@ -300,9 +286,9 @@ class MainActivity : Activity() {
                     
                     try {
                         val eventTime = parts[3].toLong() * 1000
-                        appendLog("Event Time: ${formatTimestamp(eventTime)}")
+                        appendLog("Time: ${formatTimestamp(eventTime)}")
                     } catch (e: Exception) {
-                        appendLog("Event Time: ${parts[3]}")
+                        appendLog("Time: ${parts[3]}")
                     }
                     
                     appendLog("Activity: ${parts[4]}")
@@ -312,6 +298,7 @@ class MainActivity : Activity() {
                     } catch (e: Exception) {
                         appendLog("Duration: ${parts[5]}")
                     }
+                    appendLog("━━━━━━━━━━━━━━━━━━━━━━━━")
                     appendLog("")
                 } else {
                     appendLog("[${ts()}] ✗ Malformed message (${parts.size} parts)")
@@ -366,7 +353,7 @@ class MainActivity : Activity() {
             val allGranted = grantResults.all { it == PackageManager.PERMISSION_GRANTED }
             appendLog("[${ts()}] Permissions ${if (allGranted) "granted" else "denied"}")
             if (allGranted) {
-                initializeSDK()
+                startListenerService()
             }
         }
     }

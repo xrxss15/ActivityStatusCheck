@@ -45,20 +45,37 @@ class ConnectIQQueryWorker(
             setForeground(createForegroundInfo())
             Log.i(TAG, "✓ Foreground service started")
             
-            // Initialize SDK if not already done
+            // Initialize SDK if needed - SYNCHRONOUS CHECK
             if (!connectIQService.isInitialized()) {
-                Log.i(TAG, "SDK not initialized, initializing now...")
+                Log.i(TAG, "SDK not initialized - will be initialized by MainActivity")
+                // Wait for MainActivity to initialize it, or initialize here
                 connectIQService.initializeSdkIfNeeded(applicationContext) {
-                    Log.i(TAG, "SDK initialized in Worker context")
+                    Log.i(TAG, "✓ SDK initialized in Worker")
+                    sendBroadcast("sdk_initialized")
                 }
+                
+                // Wait for SDK to be ready (it initializes asynchronously)
+                var attempts = 0
+                while (!connectIQService.isInitialized() && attempts < 100) {
+                    kotlinx.coroutines.delay(100)
+                    attempts++
+                }
+                
+                if (!connectIQService.isInitialized()) {
+                    Log.e(TAG, "SDK initialization timeout")
+                    sendBroadcast("terminating|SDK timeout")
+                    return Result.failure()
+                }
+            } else {
+                Log.i(TAG, "SDK already initialized")
             }
             
+            // Set callback for notification updates
             connectIQService.setMessageCallback { payload, deviceName, timestamp ->
                 Log.i(TAG, "Message from $deviceName: $payload")
                 lastMessage = parseMessage(payload, deviceName)
                 lastMessageTime = timestamp
                 updateNotification()
-                sendBroadcast("message_received|$deviceName|$payload")
             }
             
             connectIQService.setDeviceChangeCallback {
@@ -66,12 +83,13 @@ class ConnectIQQueryWorker(
                 checkDevices()
             }
             
+            // Register for all devices
             connectIQService.registerListenersForAllDevices()
             checkDevices()
             
             Log.i(TAG, "Event listeners registered - entering wait state")
             
-            // Wait indefinitely until cancelled - no polling!
+            // Wait indefinitely until cancelled
             suspendCancellableCoroutine<Nothing> { continuation ->
                 continuation.invokeOnCancellation {
                     Log.i(TAG, "Worker cancelled")
@@ -102,7 +120,6 @@ class ConnectIQQueryWorker(
             connectedDeviceNames = currentDevices.map { it.friendlyName ?: "Unknown" }
             
             connectIQService.registerListenersForAllDevices()
-            sendDeviceListMessage(currentDevices)
             updateNotification()
         }
     }
@@ -146,7 +163,14 @@ class ConnectIQQueryWorker(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         
-        val cancelIntent = androidx.work.WorkManager.getInstance(applicationContext).createCancelPendingIntent(id)
+        val exitIntent = Intent(applicationContext, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            putExtra("EXIT_APP", true)
+        }
+        val exitPendingIntent = PendingIntent.getActivity(
+            applicationContext, 1, exitIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         
         return NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setContentTitle("Garmin Activity Listener")
@@ -160,7 +184,7 @@ class ConnectIQQueryWorker(
             .setContentIntent(openPendingIntent)
             .setStyle(NotificationCompat.BigTextStyle().bigText(buildBigText()))
             .addAction(android.R.drawable.ic_menu_view, "Open", openPendingIntent)
-            .addAction(android.R.drawable.ic_delete, "Stop", cancelIntent)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Exit", exitPendingIntent)
             .build()
     }
     
@@ -201,12 +225,6 @@ class ConnectIQQueryWorker(
             }
             notificationManager.createNotificationChannel(channel)
         }
-    }
-    
-    private fun sendDeviceListMessage(devices: List<IQDevice>) {
-        val parts = mutableListOf("devices", devices.size.toString())
-        devices.forEach { parts.add(it.friendlyName ?: "Unknown") }
-        sendBroadcast(parts.joinToString("|"))
     }
     
     private fun sendBroadcast(message: String) {

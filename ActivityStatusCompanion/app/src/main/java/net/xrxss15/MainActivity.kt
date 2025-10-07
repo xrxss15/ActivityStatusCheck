@@ -81,11 +81,17 @@ class MainActivity : Activity() {
             override fun onSdkReady() {
                 appendLog("[${ts()}] ✓ SDK initialized successfully")
                 
-                // Pass SDK to service AND trigger device discovery
                 connectIQService.setSdkInstance(mConnectIQ)
                 connectIQService.refreshAndRegisterDevices()
                 
-                // Show device count
+                // CRITICAL FIX: Set message callback BEFORE registering listeners!
+                connectIQService.setMessageCallback { payload, deviceName, timestamp ->
+                    val broadcast = "message_received|$deviceName|$payload"
+                    handleGarminMessage(broadcast)
+                }
+                
+                connectIQService.registerListenersForAllDevices()
+                
                 handler.postDelayed({
                     val devices = connectIQService.getConnectedRealDevices()
                     appendLog("[${ts()}] Found ${devices.size} connected device(s)")
@@ -326,6 +332,8 @@ class MainActivity : Activity() {
                         appendLog("Duration: ${parts[5]}")
                     }
                     appendLog("")
+                } else {
+                    appendLog("[${ts()}] ✗ Malformed message (${parts.size} parts)")
                 }
             }
             

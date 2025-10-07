@@ -84,7 +84,7 @@ class MainActivity : Activity() {
                 connectIQService.setSdkInstance(mConnectIQ)
                 connectIQService.refreshAndRegisterDevices()
                 
-                // CRITICAL FIX: Set message callback BEFORE registering listeners!
+                // Set message callback for MainActivity
                 connectIQService.setMessageCallback { payload, deviceName, timestamp ->
                     val broadcast = "message_received|$deviceName|$payload"
                     handleGarminMessage(broadcast)

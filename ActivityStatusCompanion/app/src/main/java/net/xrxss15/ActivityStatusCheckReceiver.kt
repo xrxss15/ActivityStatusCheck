@@ -22,19 +22,14 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
             ACTION_START -> {
-                Log.i(TAG, "Starting listener via WorkManager")
+                Log.i(TAG, "Starting listener")
                 val workRequest = OneTimeWorkRequestBuilder<ConnectIQQueryWorker>().build()
                 WorkManager.getInstance(context.applicationContext)
-                    .enqueueUniqueWork(
-                        UNIQUE_WORK_NAME,
-                        ExistingWorkPolicy.KEEP,
-                        workRequest
-                    )
+                    .enqueueUniqueWork(UNIQUE_WORK_NAME, ExistingWorkPolicy.KEEP, workRequest)
             }
             ACTION_STOP -> {
                 Log.i(TAG, "Stopping listener")
-                WorkManager.getInstance(context.applicationContext)
-                    .cancelUniqueWork(UNIQUE_WORK_NAME)
+                WorkManager.getInstance(context.applicationContext).cancelUniqueWork(UNIQUE_WORK_NAME)
             }
         }
     }

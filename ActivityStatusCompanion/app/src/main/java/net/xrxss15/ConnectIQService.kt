@@ -1,10 +1,9 @@
 package net.xrxss15
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import androidx.core.content.ContextCompat
 import com.garmin.android.connectiq.ConnectIQ
 import com.garmin.android.connectiq.ConnectIQ.ConnectIQListener
@@ -36,12 +35,14 @@ class ConnectIQService private constructor() {
     private val appListeners = mutableMapOf<String, IQApplicationEventListener>()
     private var messageCallback: ((String, String, Long) -> Unit)? = null
     private var deviceChangeCallback: (() -> Unit)? = null
-    private val handler = Handler(Looper.getMainLooper())
+    private var appContext: Context? = null
 
     private fun log(msg: String) = android.util.Log.i(TAG, msg)
     private fun logError(msg: String) = android.util.Log.e(TAG, msg)
 
     fun initializeSdkIfNeeded(context: Context, onReady: (() -> Unit)? = null) {
+        appContext = context.applicationContext
+        
         if (isInitialized()) {
             log("SDK already initialized")
             onReady?.invoke()
@@ -56,11 +57,11 @@ class ConnectIQService private constructor() {
             override fun onSdkReady() {
                 log("✓ SDK initialized successfully")
                 
-                handler.postDelayed({
+                Thread {
+                    Thread.sleep(DISCOVERY_DELAY_MS)
                     refreshAndRegisterDevices()
-                }, DISCOVERY_DELAY_MS)
-                
-                onReady?.invoke()
+                    onReady?.invoke()
+                }.start()
             }
 
             override fun onInitializeError(status: IQSdkErrorStatus?) {
@@ -138,6 +139,8 @@ class ConnectIQService private constructor() {
         devices.forEach { device ->
             registerListenerForDevice(device)
         }
+        
+        sendDeviceListBroadcast(devices)
     }
 
     private fun registerListenerForDevice(device: IQDevice) {
@@ -156,8 +159,15 @@ class ConnectIQService private constructor() {
             messages.forEach { msg ->
                 val payload = msg.toString()
                 val deviceName = dev.friendlyName ?: "Unknown"
+                val timestamp = System.currentTimeMillis()
+                
                 log("Message from $deviceName: $payload")
-                messageCallback?.invoke(payload, deviceName, System.currentTimeMillis())
+                
+                // Call UI callback if set (for MainActivity and Worker)
+                messageCallback?.invoke(payload, deviceName, timestamp)
+                
+                // ALWAYS send broadcast (for Tasker and MainActivity)
+                sendMessageBroadcast(payload, deviceName)
             }
         }
         
@@ -167,6 +177,52 @@ class ConnectIQService private constructor() {
             log("✓ Registered app listener for ${device.friendlyName}")
         } catch (e: Exception) {
             logError("Failed to register app listener: ${e.message}")
+        }
+    }
+
+    private fun sendMessageBroadcast(payload: String, deviceName: String) {
+        val context = appContext ?: return
+        val message = "message_received|$deviceName|$payload"
+        
+        try {
+            val explicitIntent = Intent(ActivityStatusCheckReceiver.ACTION_MESSAGE).apply {
+                putExtra(ActivityStatusCheckReceiver.EXTRA_MESSAGE, message)
+                setPackage(context.packageName)
+            }
+            context.sendBroadcast(explicitIntent)
+            
+            val implicitIntent = Intent(ActivityStatusCheckReceiver.ACTION_MESSAGE).apply {
+                putExtra("message", message)
+                addCategory(Intent.CATEGORY_DEFAULT)
+            }
+            context.sendBroadcast(implicitIntent)
+            
+            log("✓ Broadcast sent: $message")
+        } catch (e: Exception) {
+            logError("Broadcast failed: ${e.message}")
+        }
+    }
+
+    private fun sendDeviceListBroadcast(devices: List<IQDevice>) {
+        val context = appContext ?: return
+        val parts = mutableListOf("devices", devices.size.toString())
+        devices.forEach { parts.add(it.friendlyName ?: "Unknown") }
+        val message = parts.joinToString("|")
+        
+        try {
+            val explicitIntent = Intent(ActivityStatusCheckReceiver.ACTION_MESSAGE).apply {
+                putExtra(ActivityStatusCheckReceiver.EXTRA_MESSAGE, message)
+                setPackage(context.packageName)
+            }
+            context.sendBroadcast(explicitIntent)
+            
+            val implicitIntent = Intent(ActivityStatusCheckReceiver.ACTION_MESSAGE).apply {
+                putExtra("message", message)
+                addCategory(Intent.CATEGORY_DEFAULT)
+            }
+            context.sendBroadcast(implicitIntent)
+        } catch (e: Exception) {
+            logError("Device broadcast failed: ${e.message}")
         }
     }
 
@@ -186,5 +242,6 @@ class ConnectIQService private constructor() {
         messageCallback = null
         deviceChangeCallback = null
         connectIQ = null
+        appContext = null
     }
 }

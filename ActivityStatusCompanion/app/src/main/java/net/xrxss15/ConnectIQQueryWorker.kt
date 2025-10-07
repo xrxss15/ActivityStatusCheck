@@ -11,7 +11,6 @@ import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
-import com.garmin.android.connectiq.IQDevice
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -31,7 +30,6 @@ class ConnectIQQueryWorker(
     }
 
     private val connectIQService = ConnectIQService.getInstance()
-    private var lastDeviceIds = emptySet<Long>()
     private var connectedDeviceNames = listOf<String>()
     private var lastMessage: String? = null
     private var lastMessageTime: Long = 0
@@ -46,7 +44,7 @@ class ConnectIQQueryWorker(
             setForeground(createForegroundInfo())
             Log.i(TAG, "✓ Foreground service started")
             
-            // Wait for MainActivity to initialize SDK (up to 30 seconds)
+            // Wait for MainActivity to initialize SDK
             Log.i(TAG, "Waiting for SDK initialization by MainActivity...")
             var attempts = 0
             while (!connectIQService.isInitialized() && attempts < 300) {
@@ -55,29 +53,27 @@ class ConnectIQQueryWorker(
             }
             
             if (!connectIQService.isInitialized()) {
-                Log.e(TAG, "SDK not initialized after 30 seconds - MainActivity failed?")
+                Log.e(TAG, "SDK not initialized after 30 seconds")
                 sendBroadcast("terminating|SDK not initialized")
                 return Result.failure()
             }
             
             Log.i(TAG, "✓ SDK is initialized, proceeding...")
             
-            // Set callback for notification updates
+            // Set callback for notification updates only
             connectIQService.setMessageCallback { payload, deviceName, timestamp ->
-                Log.i(TAG, "Message from $deviceName: $payload")
+                Log.i(TAG, "Callback: Message from $deviceName")
                 lastMessage = parseMessage(payload, deviceName)
                 lastMessageTime = timestamp
                 updateNotification()
             }
             
-            connectIQService.setDeviceChangeCallback {
-                Log.i(TAG, "Device change detected")
-                checkDevices()
-            }
-            
-            // Register for all devices
+            // Register listeners - ConnectIQService will send broadcasts automatically
             connectIQService.registerListenersForAllDevices()
-            checkDevices()
+            
+            val devices = connectIQService.getConnectedRealDevices()
+            connectedDeviceNames = devices.map { it.friendlyName ?: "Unknown" }
+            updateNotification()
             
             Log.i(TAG, "Event listeners registered - entering wait state")
             
@@ -98,21 +94,6 @@ class ConnectIQQueryWorker(
             Result.failure()
         } finally {
             connectIQService.setMessageCallback(null)
-            connectIQService.setDeviceChangeCallback(null)
-        }
-    }
-    
-    private fun checkDevices() {
-        val currentDevices = connectIQService.getConnectedRealDevices()
-        val currentIds = currentDevices.map { it.deviceIdentifier }.toSet()
-        
-        if (currentIds != lastDeviceIds) {
-            Log.i(TAG, "Device list changed: ${lastDeviceIds.size} -> ${currentIds.size}")
-            lastDeviceIds = currentIds
-            connectedDeviceNames = currentDevices.map { it.friendlyName ?: "Unknown" }
-            
-            connectIQService.registerListenersForAllDevices()
-            updateNotification()
         }
     }
     

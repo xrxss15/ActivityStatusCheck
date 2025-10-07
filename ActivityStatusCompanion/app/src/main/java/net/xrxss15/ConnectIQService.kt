@@ -3,18 +3,12 @@ package net.xrxss15
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import androidx.core.content.ContextCompat
 import com.garmin.android.connectiq.ConnectIQ
-import com.garmin.android.connectiq.ConnectIQ.ConnectIQListener
 import com.garmin.android.connectiq.ConnectIQ.IQApplicationEventListener
 import com.garmin.android.connectiq.ConnectIQ.IQMessageStatus
 import com.garmin.android.connectiq.IQApp
 import com.garmin.android.connectiq.IQDevice
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 
 class ConnectIQService private constructor() {
 
@@ -33,11 +27,9 @@ class ConnectIQService private constructor() {
     }
 
     private var connectIQ: ConnectIQ? = null
-    private val initialized = AtomicBoolean(false)
     private val knownDevices = mutableSetOf<IQDevice>()
     private var messageCallback: ((String, String, Long) -> Unit)? = null
     private var deviceChangeCallback: (() -> Unit)? = null
-    private val mainHandler = Handler(Looper.getMainLooper())
 
     private fun log(msg: String) = android.util.Log.i(TAG, msg)
     private fun logError(msg: String) = android.util.Log.e(TAG, msg)
@@ -51,70 +43,13 @@ class ConnectIQService private constructor() {
         return needs.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
     }
 
-    fun isInitialized(): Boolean = initialized.get()
-
-    fun initializeForWorker(context: Context): Boolean {
-        if (initialized.get()) {
-            log("Already initialized")
-            return true
-        }
-
-        log("Init SDK")
-
-        try {
-            val appContext = context.applicationContext
-            val ciq = ConnectIQ.getInstance(appContext, ConnectIQ.IQConnectType.WIRELESS)
-            connectIQ = ciq
-            
-            val latch = CountDownLatch(1)
-            val ok = AtomicBoolean(false)
-            
-            // Post to Main thread to initialize
-            mainHandler.post {
-                try {
-                    ciq.initialize(appContext, false, object : ConnectIQListener {
-                        override fun onSdkReady() {
-                            log("✓ SDK Ready")
-                            ok.set(true)
-                            latch.countDown()
-                        }
-
-                        override fun onInitializeError(status: ConnectIQ.IQSdkErrorStatus?) {
-                            logError("✗ Init error: $status")
-                            ok.set(false)
-                            latch.countDown()
-                        }
-
-                        override fun onSdkShutDown() {
-                            log("SDK shutdown")
-                            initialized.set(false)
-                        }
-                    })
-                } catch (e: Exception) {
-                    logError("Exception: ${e.message}")
-                    ok.set(false)
-                    latch.countDown()
-                }
-            }
-            
-            // Wait for init
-            latch.await(15, TimeUnit.SECONDS)
-            
-            if (!ok.get()) {
-                logError("Init failed or timeout")
-                return false
-            }
-            
-            initialized.set(true)
-            log("✓ Init complete")
-            return true
-
-        } catch (e: Exception) {
-            logError("Exception: ${e.message}")
-            e.printStackTrace()
-            return false
-        }
+    // Called from MainActivity after SDK is initialized
+    fun setSdkInstance(sdk: ConnectIQ?) {
+        connectIQ = sdk
+        log("SDK instance set")
     }
+
+    fun isInitialized(): Boolean = connectIQ != null
 
     fun getConnectedRealDevices(): List<IQDevice> {
         val ciq = connectIQ ?: return emptyList()
@@ -169,14 +104,8 @@ class ConnectIQService private constructor() {
     }
 
     fun shutdown() {
-        try {
-            connectIQ?.shutdown(null)
-            initialized.set(false)
-            knownDevices.clear()
-            messageCallback = null
-            deviceChangeCallback = null
-        } catch (e: Exception) {
-            logError("Shutdown error: ${e.message}")
-        }
+        knownDevices.clear()
+        messageCallback = null
+        deviceChangeCallback = null
     }
 }

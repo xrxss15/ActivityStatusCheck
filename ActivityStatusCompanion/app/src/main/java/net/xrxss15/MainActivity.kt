@@ -19,6 +19,9 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import com.garmin.android.connectiq.ConnectIQ
+import com.garmin.android.connectiq.ConnectIQ.ConnectIQListener
+import com.garmin.android.connectiq.ConnectIQ.IQSdkErrorStatus
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -37,6 +40,9 @@ class MainActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private var messageReceiver: BroadcastReceiver? = null
     private val connectIQService = ConnectIQService.getInstance()
+    
+    // Official Garmin pattern: Initialize SDK in Activity
+    private var mConnectIQ: ConnectIQ? = null
 
     private fun ts(): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
     
@@ -68,25 +74,38 @@ class MainActivity : Activity() {
         updateServiceStatus()
     }
 
+    // OFFICIAL GARMIN PATTERN - From Comm Sample
     private fun initializeSDK() {
         appendLog("[${ts()}] Initializing ConnectIQ SDK...")
         
-        // We're ALREADY on Main thread - just call directly!
-        val success = connectIQService.initializeForWorker(applicationContext)
+        // Get instance
+        mConnectIQ = ConnectIQ.getInstance(applicationContext, ConnectIQ.IQConnectType.WIRELESS)
         
-        if (success) {
-            appendLog("[${ts()}] ✓ SDK initialized successfully")
-            
-            if (isBatteryOptimizationDisabled()) {
-                startListener()
-            } else {
-                appendLog("⚠ Battery optimization is enabled")
-                appendLog("Press 'Battery Settings' to allow background running")
+        // Initialize with listener - OFFICIAL PATTERN
+        mConnectIQ?.initialize(applicationContext, false, object : ConnectIQListener {
+            override fun onSdkReady() {
+                appendLog("[${ts()}] ✓ SDK initialized successfully")
+                
+                // Pass initialized SDK to service
+                connectIQService.setSdkInstance(mConnectIQ)
+                
+                if (isBatteryOptimizationDisabled()) {
+                    startListener()
+                } else {
+                    appendLog("⚠ Battery optimization is enabled")
+                    appendLog("Press 'Battery Settings' to allow background running")
+                }
             }
-        } else {
-            appendLog("[${ts()}] ✗ SDK initialization failed")
-            appendLog("Make sure Garmin Connect Mobile is installed and running")
-        }
+
+            override fun onInitializeError(status: IQSdkErrorStatus?) {
+                appendLog("[${ts()}] ✗ SDK initialization failed: $status")
+                appendLog("Make sure Garmin Connect Mobile is installed and running")
+            }
+
+            override fun onSdkShutDown() {
+                appendLog("[${ts()}] SDK shutdown")
+            }
+        })
     }
 
     private fun createUI() {
@@ -371,5 +390,8 @@ class MainActivity : Activity() {
             } catch (e: IllegalArgumentException) {}
         }
         messageReceiver = null
+        
+        // Shutdown SDK
+        mConnectIQ?.shutdown(applicationContext)
     }
 }

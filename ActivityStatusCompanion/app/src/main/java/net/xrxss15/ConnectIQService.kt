@@ -15,6 +15,8 @@ class ConnectIQService private constructor() {
     companion object {
         private const val APP_UUID = "7b408c6e-fc9c-4080-bad4-97a3557fc995"
         private const val TAG = "GarminActivityListener.Service"
+        private const val DISCOVERY_DELAY_MS = 500L
+        private const val KNOWN_SIMULATOR_ID = 12345L
 
         @Volatile
         private var instance: ConnectIQService? = null
@@ -43,7 +45,6 @@ class ConnectIQService private constructor() {
         return needs.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
     }
 
-    // Called from MainActivity after SDK is initialized
     fun setSdkInstance(sdk: ConnectIQ?) {
         connectIQ = sdk
         log("SDK instance set")
@@ -51,15 +52,54 @@ class ConnectIQService private constructor() {
 
     fun isInitialized(): Boolean = connectIQ != null
 
+    private fun isRealDevice(d: IQDevice): Boolean {
+        return d.deviceIdentifier != KNOWN_SIMULATOR_ID &&
+                !d.friendlyName.orEmpty().contains("simulator", true)
+    }
+
     fun getConnectedRealDevices(): List<IQDevice> {
         val ciq = connectIQ ?: return emptyList()
         return try {
-            ciq.connectedDevices?.filter {
-                it.status == IQDevice.IQDeviceStatus.CONNECTED && it.deviceIdentifier > 0
-            } ?: emptyList()
+            val connected = ciq.connectedDevices ?: emptyList()
+            val real = connected.filter { isRealDevice(it) }
+            log("Connected devices: ${connected.size}, real: ${real.size}")
+            real
         } catch (e: Exception) {
             logError("Error getting devices: ${e.message}")
             emptyList()
+        }
+    }
+
+    // FROM YOUR ORIGINAL WORKING CODE!
+    fun refreshAndRegisterDevices() {
+        val ciq = connectIQ ?: return
+        
+        try {
+            Thread.sleep(DISCOVERY_DELAY_MS)
+        } catch (_: InterruptedException) {}
+        
+        val all = try {
+            ciq.knownDevices // <-- THIS is the key! Not just connectedDevices!
+        } catch (e: Exception) {
+            log("knownDevices threw: ${e.message}")
+            emptyList()
+        }
+        
+        val candidates = all?.filter { it.deviceIdentifier != KNOWN_SIMULATOR_ID } ?: emptyList()
+        log("Known devices: ${all?.size ?: 0}, candidates: ${candidates.size}")
+        
+        candidates.forEach { device ->
+            try {
+                ciq.registerForDeviceEvents(device) { dev, status ->
+                    log("Device event: ${dev.friendlyName} -> $status")
+                    if (status == IQDevice.IQDeviceStatus.CONNECTED) {
+                        deviceChangeCallback?.invoke()
+                    }
+                }
+                log("Registered device events for ${device.friendlyName}")
+            } catch (e: Exception) {
+                logError("Failed to register device events: ${e.message}")
+            }
         }
     }
 

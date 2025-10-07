@@ -40,8 +40,6 @@ class MainActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private var messageReceiver: BroadcastReceiver? = null
     private val connectIQService = ConnectIQService.getInstance()
-    
-    // Official Garmin pattern: Initialize SDK in Activity
     private var mConnectIQ: ConnectIQ? = null
 
     private fun ts(): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
@@ -74,20 +72,27 @@ class MainActivity : Activity() {
         updateServiceStatus()
     }
 
-    // OFFICIAL GARMIN PATTERN - From Comm Sample
     private fun initializeSDK() {
         appendLog("[${ts()}] Initializing ConnectIQ SDK...")
         
-        // Get instance
         mConnectIQ = ConnectIQ.getInstance(applicationContext, ConnectIQ.IQConnectType.WIRELESS)
         
-        // Initialize with listener - OFFICIAL PATTERN
         mConnectIQ?.initialize(applicationContext, false, object : ConnectIQListener {
             override fun onSdkReady() {
                 appendLog("[${ts()}] ✓ SDK initialized successfully")
                 
-                // Pass initialized SDK to service
+                // Pass SDK to service AND trigger device discovery
                 connectIQService.setSdkInstance(mConnectIQ)
+                connectIQService.refreshAndRegisterDevices()
+                
+                // Show device count
+                handler.postDelayed({
+                    val devices = connectIQService.getConnectedRealDevices()
+                    appendLog("[${ts()}] Found ${devices.size} connected device(s)")
+                    devices.forEach { 
+                        appendLog("[${ts()}]   • ${it.friendlyName}")
+                    }
+                }, 1000)
                 
                 if (isBatteryOptimizationDisabled()) {
                     startListener()
@@ -390,8 +395,6 @@ class MainActivity : Activity() {
             } catch (e: IllegalArgumentException) {}
         }
         messageReceiver = null
-        
-        // Shutdown SDK
         mConnectIQ?.shutdown(applicationContext)
     }
 }

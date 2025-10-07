@@ -31,7 +31,6 @@ class ConnectIQQueryWorker(
 
     private val connectIQService = ConnectIQService.getInstance()
     private var lastDeviceIds = emptySet<Long>()
-    
     private var connectedDeviceNames = listOf<String>()
     private var lastMessage: String? = null
     private var lastMessageTime: Long = 0
@@ -41,15 +40,30 @@ class ConnectIQQueryWorker(
         
         return try {
             setForeground(createForegroundInfo())
-            Log.i(TAG, "✓ Running as foreground service")
+            Log.i(TAG, "✓ Foreground service")
             
             if (!connectIQService.isInitialized()) {
-                Log.e(TAG, "SDK not initialized - user must open app first")
-                sendBroadcast("terminating|Please open the app first to initialize")
+                Log.e(TAG, "SDK not initialized")
+                sendBroadcast("terminating|Open app first")
                 return Result.failure()
             }
             
             delay(500)
+            
+            // SET THE MESSAGE CALLBACK FIRST!
+            connectIQService.setMessageCallback { payload, deviceName, timestamp ->
+                Log.i(TAG, "Message from $deviceName: $payload")
+                lastMessage = parseMessage(payload, deviceName)
+                lastMessageTime = timestamp
+                sendBroadcast("message_received|$deviceName|$payload")
+            }
+            
+            connectIQService.setDeviceChangeCallback {
+                Log.i(TAG, "Device change")
+            }
+            
+            // NOW register listeners (will use the callback we just set)
+            connectIQService.registerListenersForAllDevices()
             
             val devices = connectIQService.getConnectedRealDevices()
             Log.i(TAG, "Found ${devices.size} device(s)")
@@ -60,18 +74,7 @@ class ConnectIQQueryWorker(
             setForeground(createForegroundInfo())
             sendDeviceListMessage(devices)
             
-            connectIQService.setMessageCallback { payload, deviceName, timestamp ->
-                Log.i(TAG, "MESSAGE RECEIVED from $deviceName")
-                lastMessage = parseMessage(payload, deviceName)
-                lastMessageTime = timestamp
-                sendBroadcast("message_received|$deviceName|$payload")
-            }
-            
-            connectIQService.setDeviceChangeCallback {
-                Log.i(TAG, "Device change detected")
-            }
-            
-            Log.i(TAG, "Worker ready")
+            Log.i(TAG, "Worker ready, listening for messages")
             
             var loopCounter = 0
             var updateCounter = 0
@@ -80,7 +83,7 @@ class ConnectIQQueryWorker(
                 loopCounter++
                 
                 if (loopCounter % 30 == 0) {
-                    Log.i(TAG, "Worker running (${loopCounter}s)")
+                    Log.i(TAG, "Running ${loopCounter}s")
                 }
                 
                 updateCounter++
@@ -93,6 +96,7 @@ class ConnectIQQueryWorker(
                 val currentIds = currentDevices.map { it.deviceIdentifier }.toSet()
                 
                 if (currentIds != lastDeviceIds) {
+                    Log.i(TAG, "Device list changed")
                     lastDeviceIds = currentIds
                     connectedDeviceNames = currentDevices.map { it.friendlyName ?: "Unknown" }
                     sendDeviceListMessage(currentDevices)
@@ -102,15 +106,15 @@ class ConnectIQQueryWorker(
             }
             
             Log.i(TAG, "Worker stopped")
-            sendBroadcast("terminating|Stopped by user")
+            sendBroadcast("terminating|Stopped")
             Result.success()
             
         } catch (e: CancellationException) {
-            Log.i(TAG, "Worker cancelled")
-            sendBroadcast("terminating|Stopped by user")
+            Log.i(TAG, "Cancelled")
+            sendBroadcast("terminating|Stopped")
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Worker error", e)
+            Log.e(TAG, "Error", e)
             sendBroadcast("terminating|${e.message}")
             Result.failure()
         } finally {
@@ -128,9 +132,7 @@ class ConnectIQQueryWorker(
             "STOPPED", "ACTIVITY_STOPPED" -> "Stopped"
             else -> parts[0]
         }
-        val activity = parts[3]
-        
-        return "$event $activity"
+        return "$event ${parts[3]}"
     }
     
     private fun formatTime(timestamp: Long): String {
@@ -146,16 +148,11 @@ class ConnectIQQueryWorker(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         
-        val cancelIntent = androidx.work.WorkManager.getInstance(applicationContext)
-            .createCancelPendingIntent(id)
-        
-        val contentText = buildContentText()
-        val bigText = buildBigText()
+        val cancelIntent = androidx.work.WorkManager.getInstance(applicationContext).createCancelPendingIntent(id)
         
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setContentTitle("Garmin Activity Listener")
-            .setContentText(contentText)
-            .setTicker("Listening for Garmin messages")
+            .setContentText(buildContentText())
             .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setColor(0xFF4CAF50.toInt())
             .setOngoing(true)
@@ -163,17 +160,13 @@ class ConnectIQQueryWorker(
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(openPendingIntent)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(buildBigText()))
             .addAction(android.R.drawable.ic_menu_view, "Open", openPendingIntent)
             .addAction(android.R.drawable.ic_delete, "Stop", cancelIntent)
             .build()
         
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ForegroundInfo(
-                NOTIFICATION_ID,
-                notification,
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            )
+            ForegroundInfo(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
             ForegroundInfo(NOTIFICATION_ID, notification)
         }
@@ -183,58 +176,45 @@ class ConnectIQQueryWorker(
         return when {
             connectedDeviceNames.isEmpty() -> "Waiting for devices..."
             lastMessage != null -> lastMessage!!
-            else -> "${connectedDeviceNames.size} device(s) connected"
+            else -> "${connectedDeviceNames.size} device(s)"
         }
     }
     
     private fun buildBigText(): String {
         val sb = StringBuilder()
-        
         if (connectedDeviceNames.isEmpty()) {
-            sb.append("Devices: None connected\n")
+            sb.append("Devices: None\n")
         } else {
             sb.append("Devices:\n")
-            connectedDeviceNames.forEach { name ->
-                sb.append("  • $name\n")
-            }
+            connectedDeviceNames.forEach { sb.append("  • $it\n") }
         }
-        
         if (lastMessage != null && lastMessageTime > 0) {
-            sb.append("\nLast Message:\n")
-            sb.append("  $lastMessage\n")
-            sb.append("  ${formatTime(lastMessageTime)}")
+            sb.append("\nLast: $lastMessage\n${formatTime(lastMessageTime)}")
         } else {
-            sb.append("\nNo messages received yet")
+            sb.append("\nNo messages")
         }
-        
         return sb.toString()
     }
     
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Garmin Listener Service",
-                NotificationManager.IMPORTANCE_DEFAULT
+                CHANNEL_ID, "Garmin Listener", NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Listening for Garmin watch activity events"
+                description = "Listening for Garmin events"
                 enableLights(false)
                 enableVibration(false)
                 setSound(null, null)
                 setShowBadge(false)
             }
-            
-            val notificationManager =
-                applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
+            val nm = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.createNotificationChannel(channel)
         }
     }
     
     private fun sendDeviceListMessage(devices: List<IQDevice>) {
         val parts = mutableListOf("devices", devices.size.toString())
-        devices.forEach { device ->
-            parts.add(device.friendlyName ?: "Unknown")
-        }
+        devices.forEach { parts.add(it.friendlyName ?: "Unknown") }
         sendBroadcast(parts.joinToString("|"))
     }
     

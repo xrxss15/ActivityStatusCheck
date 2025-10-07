@@ -13,6 +13,7 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.garmin.android.connectiq.IQDevice
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -45,14 +46,21 @@ class ConnectIQQueryWorker(
             setForeground(createForegroundInfo())
             Log.i(TAG, "✓ Foreground service started")
             
-            // SDK should already be initialized by MainActivity
+            // Wait for MainActivity to initialize SDK (up to 30 seconds)
+            Log.i(TAG, "Waiting for SDK initialization by MainActivity...")
+            var attempts = 0
+            while (!connectIQService.isInitialized() && attempts < 300) {
+                delay(100)
+                attempts++
+            }
+            
             if (!connectIQService.isInitialized()) {
-                Log.e(TAG, "SDK not initialized - MainActivity must initialize first")
+                Log.e(TAG, "SDK not initialized after 30 seconds - MainActivity failed?")
                 sendBroadcast("terminating|SDK not initialized")
                 return Result.failure()
             }
             
-            Log.i(TAG, "SDK already initialized, proceeding...")
+            Log.i(TAG, "✓ SDK is initialized, proceeding...")
             
             // Set callback for notification updates
             connectIQService.setMessageCallback { payload, deviceName, timestamp ->

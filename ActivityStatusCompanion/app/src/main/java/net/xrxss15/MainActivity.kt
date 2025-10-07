@@ -19,9 +19,6 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import com.garmin.android.connectiq.ConnectIQ
-import com.garmin.android.connectiq.ConnectIQ.ConnectIQListener
-import com.garmin.android.connectiq.ConnectIQ.IQSdkErrorStatus
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -40,7 +37,6 @@ class MainActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private var messageReceiver: BroadcastReceiver? = null
     private val connectIQService = ConnectIQService.getInstance()
-    private var mConnectIQ: ConnectIQ? = null
 
     private fun ts(): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
     
@@ -75,17 +71,11 @@ class MainActivity : Activity() {
     private fun initializeSDK() {
         appendLog("[${ts()}] Initializing ConnectIQ SDK...")
         
-        mConnectIQ = ConnectIQ.getInstance(applicationContext, ConnectIQ.IQConnectType.WIRELESS)
-        
-        mConnectIQ?.initialize(applicationContext, false, object : ConnectIQListener {
-            override fun onSdkReady() {
+        connectIQService.initializeSdkIfNeeded(this) {
+            handler.post {
                 appendLog("[${ts()}] ✓ SDK initialized successfully")
                 
-                connectIQService.setSdkInstance(mConnectIQ)
-                connectIQService.refreshAndRegisterDevices()
-                
-                // Set message callback for MainActivity
-                connectIQService.setMessageCallback { payload, deviceName, timestamp ->
+                connectIQService.setMessageCallback { payload, deviceName, _ ->
                     val broadcast = "message_received|$deviceName|$payload"
                     handleGarminMessage(broadcast)
                 }
@@ -107,16 +97,7 @@ class MainActivity : Activity() {
                     appendLog("Press 'Battery Settings' to allow background running")
                 }
             }
-
-            override fun onInitializeError(status: IQSdkErrorStatus?) {
-                appendLog("[${ts()}] ✗ SDK initialization failed: $status")
-                appendLog("Make sure Garmin Connect Mobile is installed and running")
-            }
-
-            override fun onSdkShutDown() {
-                appendLog("[${ts()}] SDK shutdown")
-            }
-        })
+        }
     }
 
     private fun createUI() {
@@ -403,6 +384,5 @@ class MainActivity : Activity() {
             } catch (e: IllegalArgumentException) {}
         }
         messageReceiver = null
-        mConnectIQ?.shutdown(applicationContext)
     }
 }

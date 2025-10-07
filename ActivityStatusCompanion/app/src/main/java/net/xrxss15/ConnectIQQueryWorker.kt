@@ -13,7 +13,7 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.garmin.android.connectiq.IQDevice
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -42,56 +42,41 @@ class ConnectIQQueryWorker(
         return try {
             notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             
-            // Call setForeground ONCE at startup
             setForeground(createForegroundInfo())
             Log.i(TAG, "✓ Foreground service started")
             
+            // Initialize SDK if not already done
             if (!connectIQService.isInitialized()) {
-                Log.e(TAG, "SDK not initialized - open app first")
-                sendBroadcast("terminating|Open app first")
-                return Result.failure()
+                Log.i(TAG, "SDK not initialized, initializing now...")
+                connectIQService.initializeSdkIfNeeded(applicationContext) {
+                    Log.i(TAG, "SDK initialized in Worker context")
+                }
             }
             
-            delay(500)
-            
-            // Set message callback - updates notification when message arrives
             connectIQService.setMessageCallback { payload, deviceName, timestamp ->
                 Log.i(TAG, "Message from $deviceName: $payload")
                 lastMessage = parseMessage(payload, deviceName)
                 lastMessageTime = timestamp
-                updateNotification() // EVENT-DRIVEN update
+                updateNotification()
                 sendBroadcast("message_received|$deviceName|$payload")
             }
             
-            // Device change callback - updates notification when devices change
             connectIQService.setDeviceChangeCallback {
                 Log.i(TAG, "Device change detected")
                 checkDevices()
             }
             
-            // Initial device registration
             connectIQService.registerListenersForAllDevices()
             checkDevices()
             
-            Log.i(TAG, "Event listeners registered - waiting for events")
+            Log.i(TAG, "Event listeners registered - entering wait state")
             
-            // Minimal loop - ONLY keeps Worker alive
-            var loopCounter = 0
-            while (!isStopped) {
-                delay(1000)
-                loopCounter++
-                
-                // Just log every 60 seconds to prove we're alive
-                if (loopCounter % 60 == 0) {
-                    Log.i(TAG, "Worker alive: ${loopCounter}s")
+            // Wait indefinitely until cancelled - no polling!
+            suspendCancellableCoroutine<Nothing> { continuation ->
+                continuation.invokeOnCancellation {
+                    Log.i(TAG, "Worker cancelled")
                 }
-                
-                // NO notification updates here - only on actual events!
             }
-            
-            Log.i(TAG, "Worker stopped")
-            sendBroadcast("terminating|Stopped")
-            Result.success()
             
         } catch (e: CancellationException) {
             Log.i(TAG, "Worker cancelled")
@@ -107,7 +92,6 @@ class ConnectIQQueryWorker(
         }
     }
     
-    // Called on startup and device change events only
     private fun checkDevices() {
         val currentDevices = connectIQService.getConnectedRealDevices()
         val currentIds = currentDevices.map { it.deviceIdentifier }.toSet()
@@ -119,11 +103,10 @@ class ConnectIQQueryWorker(
             
             connectIQService.registerListenersForAllDevices()
             sendDeviceListMessage(currentDevices)
-            updateNotification() // EVENT-DRIVEN update
+            updateNotification()
         }
     }
     
-    // Update notification using NotificationManager - NOT setForeground!
     private fun updateNotification() {
         val notification = buildNotification()
         notificationManager.notify(NOTIFICATION_ID, notification)

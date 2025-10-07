@@ -13,7 +13,7 @@ import com.garmin.android.connectiq.IQDevice
 class ConnectIQService private constructor() {
 
     companion object {
-        private const val APP_UUID = "7b408c6e-fc9c-4080-bad4-97a3557fc995"
+        private const val APP_UUID = "a3682e8a-8c10-4618-9f36-fd52877df567"  // Your Data Field UUID
         private const val TAG = "GarminActivityListener.Service"
         private const val DISCOVERY_DELAY_MS = 500L
         private const val KNOWN_SIMULATOR_ID = 12345L
@@ -63,7 +63,6 @@ class ConnectIQService private constructor() {
         return try {
             val connected = ciq.connectedDevices ?: emptyList()
             val real = connected.filter { isRealDevice(it) }
-            log("Connected devices: ${connected.size}, real: ${real.size}")
             real
         } catch (e: Exception) {
             logError("Error getting devices: ${e.message}")
@@ -105,7 +104,7 @@ class ConnectIQService private constructor() {
 
     fun registerListenersForAllDevices() {
         val devices = getConnectedRealDevices()
-        log("Registering ${devices.size} device(s)")
+        log("Registering ${devices.size} device(s) for app UUID: $APP_UUID")
         
         knownDevices.clear()
         knownDevices.addAll(devices)
@@ -113,8 +112,6 @@ class ConnectIQService private constructor() {
         devices.forEach { device ->
             registerListenerForDevice(device)
         }
-        
-        deviceChangeCallback?.invoke()
     }
 
     private fun registerListenerForDevice(device: IQDevice) {

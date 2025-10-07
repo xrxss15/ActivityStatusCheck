@@ -166,7 +166,7 @@ class ConnectIQService private constructor() {
                 // Call UI callback if set (for MainActivity and Worker)
                 messageCallback?.invoke(payload, deviceName, timestamp)
                 
-                // ALWAYS send broadcast (for Tasker and MainActivity)
+                // ALWAYS send broadcast (for Tasker) - WITH DEVICE NAME
                 sendMessageBroadcast(payload, deviceName)
             }
         }
@@ -182,17 +182,23 @@ class ConnectIQService private constructor() {
 
     private fun sendMessageBroadcast(payload: String, deviceName: String) {
         val context = appContext ?: return
+        
+        // Format: "message_received|DeviceName|STARTED|timestamp|activity|duration"
         val message = "message_received|$deviceName|$payload"
         
         try {
+            // Explicit broadcast (for MainActivity)
             val explicitIntent = Intent(ActivityStatusCheckReceiver.ACTION_MESSAGE).apply {
                 putExtra(ActivityStatusCheckReceiver.EXTRA_MESSAGE, message)
                 setPackage(context.packageName)
             }
             context.sendBroadcast(explicitIntent)
             
+            // Implicit broadcast (for Tasker) - ALSO include device name in extras
             val implicitIntent = Intent(ActivityStatusCheckReceiver.ACTION_MESSAGE).apply {
                 putExtra("message", message)
+                putExtra("device_name", deviceName)  // Additional extra for easier parsing
+                putExtra("payload", payload)          // Raw payload
                 addCategory(Intent.CATEGORY_DEFAULT)
             }
             context.sendBroadcast(implicitIntent)

@@ -71,24 +71,22 @@ class MainActivity : Activity() {
     private fun initializeSDK() {
         appendLog("[${ts()}] Initializing ConnectIQ SDK...")
         
-        // Initialize on Main thread via Handler (small delay to not block onCreate)
-        handler.postDelayed({
-            val success = connectIQService.initializeForWorker(applicationContext)
+        // We're ALREADY on Main thread - just call directly!
+        val success = connectIQService.initializeForWorker(applicationContext)
+        
+        if (success) {
+            appendLog("[${ts()}] ✓ SDK initialized successfully")
             
-            if (success) {
-                appendLog("[${ts()}] ✓ SDK initialized successfully")
-                
-                if (isBatteryOptimizationDisabled()) {
-                    startListener()
-                } else {
-                    appendLog("⚠ Battery optimization is enabled")
-                    appendLog("Press 'Battery Settings' to allow background running")
-                }
+            if (isBatteryOptimizationDisabled()) {
+                startListener()
             } else {
-                appendLog("[${ts()}] ✗ SDK initialization failed")
-                appendLog("Make sure Garmin Connect Mobile is installed and running")
+                appendLog("⚠ Battery optimization is enabled")
+                appendLog("Press 'Battery Settings' to allow background running")
             }
-        }, 100)
+        } else {
+            appendLog("[${ts()}] ✗ SDK initialization failed")
+            appendLog("Make sure Garmin Connect Mobile is installed and running")
+        }
     }
 
     private fun createUI() {

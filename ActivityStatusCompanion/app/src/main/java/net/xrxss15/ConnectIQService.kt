@@ -69,7 +69,7 @@ class ConnectIQService private constructor() {
             val latch = CountDownLatch(1)
             val ok = AtomicBoolean(false)
             
-            // Use Handler to post to Main thread - THIS IS THE KEY!
+            // Post to Main thread to initialize
             mainHandler.post {
                 try {
                     ciq.initialize(appContext, false, object : ConnectIQListener {
@@ -97,7 +97,7 @@ class ConnectIQService private constructor() {
                 }
             }
             
-            // Wait for init to complete
+            // Wait for init
             latch.await(15, TimeUnit.SECONDS)
             
             if (!ok.get()) {

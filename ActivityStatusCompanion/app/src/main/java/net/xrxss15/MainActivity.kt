@@ -35,6 +35,7 @@ class MainActivity : Activity() {
     
     private val handler = Handler(Looper.getMainLooper())
     private var messageReceiver: BroadcastReceiver? = null
+    private val connectIQService = ConnectIQService.getInstance()
 
     private fun ts(): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
     
@@ -66,21 +67,43 @@ class MainActivity : Activity() {
         if (!hasRequiredPermissions()) {
             requestRequiredPermissions()
         } else {
-            startListenerService()
+            initializeAndStart()
         }
 
         updateServiceStatus()
     }
 
-    private fun startListenerService() {
-        if (!isBatteryOptimizationDisabled()) {
-            appendLog("⚠ Battery optimization is enabled")
-            appendLog("Press 'Battery Settings' to allow background running")
+    private fun initializeAndStart() {
+        appendLog("[${ts()}] Initializing ConnectIQ SDK...")
+        
+        // Initialize SDK on main thread (required!)
+        connectIQService.initializeSdkIfNeeded(this) {
+            handler.post {
+                appendLog("[${ts()}] ✓ SDK initialized successfully")
+                
+                // Give SDK time to discover devices
+                handler.postDelayed({
+                    val devices = connectIQService.getConnectedRealDevices()
+                    appendLog("[${ts()}] Found ${devices.size} connected device(s)")
+                    devices.forEach { 
+                        appendLog("[${ts()}]   • ${it.friendlyName}")
+                    }
+                    
+                    // NOW start the worker
+                    if (!isBatteryOptimizationDisabled()) {
+                        appendLog("⚠ Battery optimization is enabled")
+                        appendLog("Press 'Battery Settings' to allow background running")
+                    }
+                    
+                    startWorker()
+                }, 1000)
+            }
         }
+    }
+
+    private fun startWorker() {
+        appendLog("[${ts()}] Starting background worker...")
         
-        appendLog("[${ts()}] Starting background listener...")
-        
-        // Start the Worker - it will handle SDK init and everything
         val intent = Intent(ActivityStatusCheckReceiver.ACTION_START).apply {
             setPackage(packageName)
         }
@@ -109,7 +132,6 @@ class MainActivity : Activity() {
             }
             addView(statusText)
 
-            // Top row: Battery Settings | Exit
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 8, 0, 8)
@@ -135,7 +157,6 @@ class MainActivity : Activity() {
                 addView(exitBtn)
             })
 
-            // Bottom row: Copy Log | Clear Log
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 0, 0, 8)
@@ -179,13 +200,12 @@ class MainActivity : Activity() {
     }
 
     private fun exitApp() {
-        // Stop the worker
         val intent = Intent(ActivityStatusCheckReceiver.ACTION_STOP).apply {
             setPackage(packageName)
         }
         sendBroadcast(intent)
         
-        // Close app
+        connectIQService.shutdown()
         finishAndRemoveTask()
         System.exit(0)
     }
@@ -255,14 +275,10 @@ class MainActivity : Activity() {
         if (parts.isEmpty()) return
         
         when (parts[0]) {
-            "sdk_initialized" -> {
-                appendLog("[${ts()}] ✓ SDK initialized successfully")
-            }
-            
             "devices" -> {
                 if (parts.size >= 2) {
                     val count = parts[1].toIntOrNull() ?: 0
-                    appendLog("[${ts()}] Found ${count} connected device(s)")
+                    appendLog("[${ts()}] Worker found ${count} device(s)")
                     for (i in 2 until parts.size) {
                         appendLog("[${ts()}]   • ${parts[i]}")
                     }
@@ -353,7 +369,7 @@ class MainActivity : Activity() {
             val allGranted = grantResults.all { it == PackageManager.PERMISSION_GRANTED }
             appendLog("[${ts()}] Permissions ${if (allGranted) "granted" else "denied"}")
             if (allGranted) {
-                startListenerService()
+                initializeAndStart()
             }
         }
     }

@@ -45,30 +45,14 @@ class ConnectIQQueryWorker(
             setForeground(createForegroundInfo())
             Log.i(TAG, "✓ Foreground service started")
             
-            // Initialize SDK if needed - SYNCHRONOUS CHECK
+            // SDK should already be initialized by MainActivity
             if (!connectIQService.isInitialized()) {
-                Log.i(TAG, "SDK not initialized - will be initialized by MainActivity")
-                // Wait for MainActivity to initialize it, or initialize here
-                connectIQService.initializeSdkIfNeeded(applicationContext) {
-                    Log.i(TAG, "✓ SDK initialized in Worker")
-                    sendBroadcast("sdk_initialized")
-                }
-                
-                // Wait for SDK to be ready (it initializes asynchronously)
-                var attempts = 0
-                while (!connectIQService.isInitialized() && attempts < 100) {
-                    kotlinx.coroutines.delay(100)
-                    attempts++
-                }
-                
-                if (!connectIQService.isInitialized()) {
-                    Log.e(TAG, "SDK initialization timeout")
-                    sendBroadcast("terminating|SDK timeout")
-                    return Result.failure()
-                }
-            } else {
-                Log.i(TAG, "SDK already initialized")
+                Log.e(TAG, "SDK not initialized - MainActivity must initialize first")
+                sendBroadcast("terminating|SDK not initialized")
+                return Result.failure()
             }
+            
+            Log.i(TAG, "SDK already initialized, proceeding...")
             
             // Set callback for notification updates
             connectIQService.setMessageCallback { payload, deviceName, timestamp ->

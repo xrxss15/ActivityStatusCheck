@@ -3,6 +3,8 @@ package net.xrxss15
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import androidx.core.content.ContextCompat
 import com.garmin.android.connectiq.ConnectIQ
 import com.garmin.android.connectiq.ConnectIQ.ConnectIQListener
@@ -35,15 +37,10 @@ class ConnectIQService private constructor() {
     private val knownDevices = mutableSetOf<IQDevice>()
     private var messageCallback: ((String, String, Long) -> Unit)? = null
     private var deviceChangeCallback: (() -> Unit)? = null
-    private var initError: ConnectIQ.IQSdkErrorStatus? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
-    private fun log(msg: String) {
-        android.util.Log.i(TAG, msg)
-    }
-
-    private fun logError(msg: String) {
-        android.util.Log.e(TAG, msg)
-    }
+    private fun log(msg: String) = android.util.Log.i(TAG, msg)
+    private fun logError(msg: String) = android.util.Log.e(TAG, msg)
 
     fun hasRequiredPermissions(context: Context): Boolean {
         val needs = mutableListOf(android.Manifest.permission.ACCESS_FINE_LOCATION)
@@ -51,14 +48,10 @@ class ConnectIQService private constructor() {
             needs.add(android.Manifest.permission.BLUETOOTH_SCAN)
             needs.add(android.Manifest.permission.BLUETOOTH_CONNECT)
         }
-        val result = needs.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
-        log("Permission check: $result")
-        return result
+        return needs.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
     }
 
-    fun isInitialized(): Boolean {
-        return initialized.get()
-    }
+    fun isInitialized(): Boolean = initialized.get()
 
     fun initializeForWorker(context: Context): Boolean {
         if (initialized.get()) {
@@ -66,66 +59,55 @@ class ConnectIQService private constructor() {
             return true
         }
 
-        log("Starting ConnectIQ SDK initialization")
-        log("Thread: ${Thread.currentThread().name}")
+        log("Init SDK")
 
         try {
-            log("Creating ConnectIQ instance...")
-            connectIQ = ConnectIQ.getInstance(context.applicationContext, ConnectIQ.IQConnectType.WIRELESS)
-            log("✓ ConnectIQ instance created")
+            val appContext = context.applicationContext
+            val ciq = ConnectIQ.getInstance(appContext, ConnectIQ.IQConnectType.WIRELESS)
+            connectIQ = ciq
             
-            val initLatch = CountDownLatch(1)
-            initError = null
+            val latch = CountDownLatch(1)
+            val ok = AtomicBoolean(false)
             
-            log("Calling initialize()...")
-            connectIQ?.initialize(context.applicationContext, false, object : ConnectIQListener {
-                override fun onSdkReady() {
-                    log("✓✓✓ onSdkReady()")
-                    initialized.set(true)
-                    initLatch.countDown()
-                }
+            // Use Handler to post to Main thread - THIS IS THE KEY!
+            mainHandler.post {
+                try {
+                    ciq.initialize(appContext, false, object : ConnectIQListener {
+                        override fun onSdkReady() {
+                            log("✓ SDK Ready")
+                            ok.set(true)
+                            latch.countDown()
+                        }
 
-                override fun onInitializeError(status: ConnectIQ.IQSdkErrorStatus?) {
-                    logError("✗✗✗ onInitializeError(): $status")
-                    when (status) {
-                        ConnectIQ.IQSdkErrorStatus.GCM_NOT_INSTALLED -> 
-                            logError("  → Garmin Connect Mobile not installed")
-                        ConnectIQ.IQSdkErrorStatus.GCM_UPGRADE_NEEDED -> 
-                            logError("  → Garmin Connect Mobile needs upgrade")
-                        ConnectIQ.IQSdkErrorStatus.SERVICE_ERROR -> 
-                            logError("  → Service error")
-                        else -> logError("  → Unknown error")
-                    }
-                    initError = status
-                    initialized.set(false)
-                    initLatch.countDown()
-                }
+                        override fun onInitializeError(status: ConnectIQ.IQSdkErrorStatus?) {
+                            logError("✗ Init error: $status")
+                            ok.set(false)
+                            latch.countDown()
+                        }
 
-                override fun onSdkShutDown() {
-                    log("onSdkShutDown()")
-                    initialized.set(false)
+                        override fun onSdkShutDown() {
+                            log("SDK shutdown")
+                            initialized.set(false)
+                        }
+                    })
+                } catch (e: Exception) {
+                    logError("Exception: ${e.message}")
+                    ok.set(false)
+                    latch.countDown()
                 }
-            })
-            log("✓ initialize() called, waiting...")
-
-            var elapsed = 0
-            while (initLatch.count > 0 && elapsed < 15) {
-                log("Waiting ${elapsed}s...")
-                val completed = initLatch.await(1, TimeUnit.SECONDS)
-                if (completed) {
-                    log("✓ Done after ${elapsed + 1}s")
-                    break
-                }
-                elapsed++
             }
             
-            if (initLatch.count > 0) {
-                logError("✗ TIMEOUT after 15s")
+            // Wait for init to complete
+            latch.await(15, TimeUnit.SECONDS)
+            
+            if (!ok.get()) {
+                logError("Init failed or timeout")
                 return false
             }
             
-            log("Initialization result: ${initialized.get()}")
-            return initialized.get()
+            initialized.set(true)
+            log("✓ Init complete")
+            return true
 
         } catch (e: Exception) {
             logError("Exception: ${e.message}")
@@ -136,13 +118,10 @@ class ConnectIQService private constructor() {
 
     fun getConnectedRealDevices(): List<IQDevice> {
         val ciq = connectIQ ?: return emptyList()
-        
         return try {
-            val devices = ciq.connectedDevices ?: return emptyList()
-            devices.filter { device ->
-                device.status == IQDevice.IQDeviceStatus.CONNECTED &&
-                device.deviceIdentifier > 0
-            }
+            ciq.connectedDevices?.filter {
+                it.status == IQDevice.IQDeviceStatus.CONNECTED && it.deviceIdentifier > 0
+            } ?: emptyList()
         } catch (e: Exception) {
             logError("Error getting devices: ${e.message}")
             emptyList()
@@ -151,46 +130,33 @@ class ConnectIQService private constructor() {
 
     fun registerListenersForAllDevices() {
         val devices = getConnectedRealDevices()
-        log("Registering listeners for ${devices.size} device(s)")
-        
+        log("Registering ${devices.size} device(s)")
         knownDevices.clear()
         knownDevices.addAll(devices)
-
-        devices.forEach { device ->
-            registerListenerForDevice(device)
-        }
-        
+        devices.forEach { registerListenerForDevice(it) }
         deviceChangeCallback?.invoke()
     }
 
     private fun registerListenerForDevice(device: IQDevice) {
         val ciq = connectIQ ?: return
         val app = IQApp(APP_UUID)
-
         try {
             ciq.registerForAppEvents(device, app, object : IQApplicationEventListener {
                 override fun onMessageReceived(
-                    device: IQDevice?,
-                    app: IQApp?,
-                    messages: MutableList<Any>?,
-                    status: IQMessageStatus?
+                    device: IQDevice?, app: IQApp?, messages: MutableList<Any>?, status: IQMessageStatus?
                 ) {
                     if (device == null || messages.isNullOrEmpty()) return
-
                     messages.forEach { msg ->
                         val payload = msg.toString()
                         val deviceName = device.friendlyName ?: "Unknown"
-                        val timestamp = System.currentTimeMillis()
-                        
-                        log("Message from ${deviceName}: $payload")
-                        messageCallback?.invoke(payload, deviceName, timestamp)
+                        log("Message from $deviceName: $payload")
+                        messageCallback?.invoke(payload, deviceName, System.currentTimeMillis())
                     }
                 }
             })
-            
-            log("✓ Registered listener for ${device.friendlyName}")
+            log("✓ Listener for ${device.friendlyName}")
         } catch (e: Exception) {
-            logError("Failed to register listener: ${e.message}")
+            logError("Failed listener: ${e.message}")
         }
     }
 
@@ -204,7 +170,6 @@ class ConnectIQService private constructor() {
 
     fun shutdown() {
         try {
-            log("Shutting down SDK")
             connectIQ?.shutdown(null)
             initialized.set(false)
             knownDevices.clear()

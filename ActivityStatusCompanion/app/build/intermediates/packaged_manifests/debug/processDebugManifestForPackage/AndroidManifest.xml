@@ -8,28 +8,15 @@
         android:minSdkVersion="24"
         android:targetSdkVersion="34" />
 
-    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <uses-permission
-        android:name="android.permission.BLUETOOTH"
-        android:maxSdkVersion="30" />
-    <uses-permission
-        android:name="android.permission.BLUETOOTH_ADMIN"
-        android:maxSdkVersion="30" />
-    <uses-permission
-        android:name="android.permission.BLUETOOTH_SCAN"
-        android:usesPermissionFlags="neverForLocation" />
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-
-    <uses-feature
-        android:name="android.hardware.bluetooth_le"
-        android:required="true" />
-
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -49,14 +36,13 @@
         android:appComponentFactory="androidx.core.app.CoreComponentFactory"
         android:debuggable="true"
         android:extractNativeLibs="false"
-        android:icon="@android:drawable/sym_def_app_icon"
-        android:label="Garmin Activity Listener"
+        android:icon="@mipmap/ic_launcher"
+        android:label="Garmin Listener"
+        android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light" >
         <activity
             android:name="net.xrxss15.MainActivity"
-            android:exported="true"
-            android:launchMode="singleTop"
-            android:screenOrientation="portrait" >
+            android:exported="true" >
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
@@ -66,21 +52,18 @@
 
         <receiver
             android:name="net.xrxss15.ActivityStatusCheckReceiver"
+            android:enabled="true"
             android:exported="true" >
-            <intent-filter android:priority="1000" >
-                <action android:name="net.xrxss15.START_GARMIN_LISTENER" />
-                <action android:name="net.xrxss15.STOP_GARMIN_LISTENER" />
+            <intent-filter>
 
-                <category android:name="android.intent.category.DEFAULT" />
+                <!-- Internal intents -->
+                <action android:name="net.xrxss15.internal.START" />
+                <action android:name="net.xrxss15.internal.STOP" />
+
+                <!-- Public intent for Tasker -->
+                <action android:name="net.xrxss15.GARMIN_ACTIVITY_LISTENER_TERMINATE" />
             </intent-filter>
         </receiver>
-
-        <service
-            android:name="androidx.work.impl.foreground.SystemForegroundService"
-            android:directBootAware="false"
-            android:enabled="@bool/enable_system_foreground_service_default"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
 
         <provider
             android:name="androidx.startup.InitializationProvider"
@@ -105,6 +88,11 @@
             android:enabled="@bool/enable_system_job_service_default"
             android:exported="true"
             android:permission="android.permission.BIND_JOB_SERVICE" />
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:directBootAware="false"
+            android:enabled="@bool/enable_system_foreground_service_default"
+            android:exported="false" />
 
         <receiver
             android:name="androidx.work.impl.utils.ForceStopRunnable$BroadcastReceiver"

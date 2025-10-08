@@ -166,7 +166,7 @@ class ConnectIQService private constructor() {
                 // Call UI callback if set (for MainActivity and Worker)
                 messageCallback?.invoke(payload, deviceName, timestamp)
                 
-                // ALWAYS send broadcast (for Tasker) - WITH DEVICE NAME
+                // ALWAYS send broadcast (for Tasker)
                 sendMessageBroadcast(payload, deviceName)
             }
         }
@@ -183,52 +183,61 @@ class ConnectIQService private constructor() {
     private fun sendMessageBroadcast(payload: String, deviceName: String) {
         val context = appContext ?: return
         
-        // Format: "message_received|DeviceName|STARTED|timestamp|activity|duration"
-        val message = "message_received|$deviceName|$payload"
+        // Parse payload: "STARTED|timestamp|activity|duration"
+        val parts = payload.split("|")
+        if (parts.size < 4) {
+            logError("Invalid payload format: $payload")
+            return
+        }
+        
+        val eventType = when (parts[0]) {
+            "STARTED", "ACTIVITY_STARTED" -> "Started"
+            "STOPPED", "ACTIVITY_STOPPED" -> "Stopped"
+            else -> {
+                logError("Unknown event type: ${parts[0]}")
+                return
+            }
+        }
         
         try {
-            // Explicit broadcast (for MainActivity)
-            val explicitIntent = Intent(ActivityStatusCheckReceiver.ACTION_MESSAGE).apply {
-                putExtra(ActivityStatusCheckReceiver.EXTRA_MESSAGE, message)
-                setPackage(context.packageName)
-            }
-            context.sendBroadcast(explicitIntent)
+            val time = parts[1].toLong()
+            val activity = parts[2]
+            val duration = parts[3].toInt()
             
-            // Implicit broadcast (for Tasker) - ALSO include device name in extras
-            val implicitIntent = Intent(ActivityStatusCheckReceiver.ACTION_MESSAGE).apply {
-                putExtra("message", message)
-                putExtra("device_name", deviceName)  // Additional extra for easier parsing
-                putExtra("payload", payload)          // Raw payload
+            val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
+                putExtra("type", eventType)
+                putExtra("device", deviceName)
+                putExtra("time", time)
+                putExtra("activity", activity)
+                putExtra("duration", duration)
                 addCategory(Intent.CATEGORY_DEFAULT)
             }
-            context.sendBroadcast(implicitIntent)
             
-            log("✓ Broadcast sent: $message")
+            context.sendBroadcast(intent)
+            log("✓ Broadcast sent: $eventType for $activity on $deviceName")
+            
         } catch (e: Exception) {
-            logError("Broadcast failed: ${e.message}")
+            logError("Failed to parse message: $payload - ${e.message}")
         }
     }
 
     private fun sendDeviceListBroadcast(devices: List<IQDevice>) {
         val context = appContext ?: return
-        val parts = mutableListOf("devices", devices.size.toString())
-        devices.forEach { parts.add(it.friendlyName ?: "Unknown") }
-        val message = parts.joinToString("|")
+        
+        val deviceNames = devices.map { it.friendlyName ?: "Unknown" }.joinToString("/")
         
         try {
-            val explicitIntent = Intent(ActivityStatusCheckReceiver.ACTION_MESSAGE).apply {
-                putExtra(ActivityStatusCheckReceiver.EXTRA_MESSAGE, message)
-                setPackage(context.packageName)
-            }
-            context.sendBroadcast(explicitIntent)
-            
-            val implicitIntent = Intent(ActivityStatusCheckReceiver.ACTION_MESSAGE).apply {
-                putExtra("message", message)
+            val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
+                putExtra("type", "DeviceList")
+                putExtra("devices", deviceNames)
                 addCategory(Intent.CATEGORY_DEFAULT)
             }
-            context.sendBroadcast(implicitIntent)
+            
+            context.sendBroadcast(intent)
+            log("✓ Device list broadcast sent: $deviceNames")
+            
         } catch (e: Exception) {
-            logError("Device broadcast failed: ${e.message}")
+            logError("Device list broadcast failed: ${e.message}")
         }
     }
 

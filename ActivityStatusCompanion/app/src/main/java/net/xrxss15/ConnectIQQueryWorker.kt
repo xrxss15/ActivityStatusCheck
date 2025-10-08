@@ -11,7 +11,6 @@ import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
-import com.garmin.android.connectiq.IQDevice
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -56,7 +55,7 @@ class ConnectIQQueryWorker(
             
             if (!connectIQService.isInitialized()) {
                 Log.e(TAG, "SDK not initialized after 30 seconds")
-                sendBroadcast("terminating|SDK not initialized")
+                sendTerminateBroadcast("SDK not initialized")
                 return Result.failure()
             }
             
@@ -76,7 +75,7 @@ class ConnectIQQueryWorker(
                 checkDevices()
             }
             
-            // Register listeners - ConnectIQService will send broadcasts automatically
+            // Register listeners
             connectIQService.registerListenersForAllDevices()
             checkDevices()
             
@@ -91,11 +90,11 @@ class ConnectIQQueryWorker(
             
         } catch (e: CancellationException) {
             Log.i(TAG, "Worker cancelled")
-            sendBroadcast("terminating|Stopped")
+            sendTerminateBroadcast("Stopped")
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Worker error", e)
-            sendBroadcast("terminating|${e.message}")
+            sendTerminateBroadcast(e.message ?: "Unknown error")
             Result.failure()
         } finally {
             connectIQService.setMessageCallback(null)
@@ -112,9 +111,7 @@ class ConnectIQQueryWorker(
             lastDeviceIds = currentIds
             connectedDeviceNames = currentDevices.map { it.friendlyName ?: "Unknown" }
             
-            // Re-register listeners for new device list
             connectIQService.registerListenersForAllDevices()
-            
             updateNotification()
         }
     }
@@ -222,19 +219,17 @@ class ConnectIQQueryWorker(
         }
     }
     
-    private fun sendBroadcast(message: String) {
+    private fun sendTerminateBroadcast(reason: String) {
         try {
-            val explicitIntent = Intent(ActivityStatusCheckReceiver.ACTION_MESSAGE).apply {
-                putExtra(ActivityStatusCheckReceiver.EXTRA_MESSAGE, message)
-                setPackage(applicationContext.packageName)
-            }
-            applicationContext.sendBroadcast(explicitIntent)
-            
-            val implicitIntent = Intent(ActivityStatusCheckReceiver.ACTION_MESSAGE).apply {
-                putExtra("message", message)
+            val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
+                putExtra("type", "Terminate")
+                putExtra("reason", reason)
                 addCategory(Intent.CATEGORY_DEFAULT)
             }
-            applicationContext.sendBroadcast(implicitIntent)
+            
+            applicationContext.sendBroadcast(intent)
+            Log.i(TAG, "✓ Terminate broadcast sent: $reason")
+            
         } catch (e: Exception) {
             Log.e(TAG, "Broadcast failed", e)
         }

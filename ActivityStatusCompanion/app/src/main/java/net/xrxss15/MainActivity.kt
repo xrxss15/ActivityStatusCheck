@@ -76,12 +76,10 @@ class MainActivity : Activity() {
     private fun initializeAndStart() {
         appendLog("[${ts()}] Initializing ConnectIQ SDK...")
         
-        // Initialize SDK on main thread (required!)
         connectIQService.initializeSdkIfNeeded(this) {
             handler.post {
                 appendLog("[${ts()}] ✓ SDK initialized successfully")
                 
-                // Give SDK time to discover devices
                 handler.postDelayed({
                     val devices = connectIQService.getConnectedRealDevices()
                     appendLog("[${ts()}] Found ${devices.size} connected device(s)")
@@ -89,7 +87,6 @@ class MainActivity : Activity() {
                         appendLog("[${ts()}]   • ${it.friendlyName}")
                     }
                     
-                    // NOW start the worker
                     if (!isBatteryOptimizationDisabled()) {
                         appendLog("⚠ Battery optimization is enabled")
                         appendLog("Press 'Battery Settings' to allow background running")
@@ -255,14 +252,14 @@ class MainActivity : Activity() {
     private fun registerBroadcastReceiver() {
         messageReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                if (intent?.action == ActivityStatusCheckReceiver.ACTION_MESSAGE) {
-                    val message = intent.getStringExtra(ActivityStatusCheckReceiver.EXTRA_MESSAGE)
-                    message?.let { handleGarminMessage(it) }
+                if (intent?.action == ActivityStatusCheckReceiver.ACTION_EVENT) {
+                    val type = intent.getStringExtra("type")
+                    handleGarminEvent(type, intent)
                 }
             }
         }
         
-        val filter = IntentFilter(ActivityStatusCheckReceiver.ACTION_MESSAGE)
+        val filter = IntentFilter(ActivityStatusCheckReceiver.ACTION_EVENT)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(messageReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
@@ -270,61 +267,39 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun handleGarminMessage(message: String) {
-        val parts = message.split("|")
-        if (parts.isEmpty()) return
-        
-        when (parts[0]) {
-            "devices" -> {
-                if (parts.size >= 2) {
-                    val count = parts[1].toIntOrNull() ?: 0
-                    appendLog("[${ts()}] Worker found ${count} device(s)")
-                    for (i in 2 until parts.size) {
-                        appendLog("[${ts()}]   • ${parts[i]}")
-                    }
+    private fun handleGarminEvent(type: String?, intent: Intent) {
+        when (type) {
+            "Started", "Stopped" -> {
+                val device = intent.getStringExtra("device") ?: "Unknown"
+                val time = intent.getLongExtra("time", 0)
+                val activity = intent.getStringExtra("activity") ?: "Unknown"
+                val duration = intent.getIntExtra("duration", 0)
+                
+                appendLog("")
+                appendLog("━━━━━━━━━━━━━━━━━━━━━━━━")
+                appendLog("ACTIVITY EVENT: $type")
+                appendLog("Device: $device")
+                appendLog("Time: ${formatTimestamp(time * 1000)}")
+                appendLog("Activity: $activity")
+                if (type == "Stopped") {
+                    appendLog("Duration: ${formatDuration(duration)}")
+                }
+                appendLog("━━━━━━━━━━━━━━━━━━━━━━━━")
+                appendLog("")
+            }
+            
+            "DeviceList" -> {
+                val devices = intent.getStringExtra("devices") ?: ""
+                val deviceList = if (devices.isEmpty()) emptyList() else devices.split("/")
+                appendLog("[${ts()}] Devices updated: ${deviceList.size} device(s)")
+                deviceList.forEach {
+                    appendLog("[${ts()}]   • $it")
                 }
             }
             
-            "message_received" -> {
-                if (parts.size >= 6) {
-                    appendLog("")
-                    appendLog("━━━━━━━━━━━━━━━━━━━━━━━━")
-                    appendLog("ACTIVITY EVENT")
-                    appendLog("Device: ${parts[1]}")
-                    appendLog("Received: ${formatTimestamp(System.currentTimeMillis())}")
-                    
-                    val event = when (parts[2]) {
-                        "STARTED", "ACTIVITY_STARTED" -> "STARTED"
-                        "STOPPED", "ACTIVITY_STOPPED" -> "STOPPED"
-                        else -> parts[2]
-                    }
-                    appendLog("Event: $event")
-                    
-                    try {
-                        val eventTime = parts[3].toLong() * 1000
-                        appendLog("Time: ${formatTimestamp(eventTime)}")
-                    } catch (e: Exception) {
-                        appendLog("Time: ${parts[3]}")
-                    }
-                    
-                    appendLog("Activity: ${parts[4]}")
-                    
-                    try {
-                        appendLog("Duration: ${formatDuration(parts[5].toInt())}")
-                    } catch (e: Exception) {
-                        appendLog("Duration: ${parts[5]}")
-                    }
-                    appendLog("━━━━━━━━━━━━━━━━━━━━━━━━")
-                    appendLog("")
-                } else {
-                    appendLog("[${ts()}] ✗ Malformed message (${parts.size} parts)")
-                }
-            }
-            
-            "terminating" -> {
-                if (parts.size >= 2) {
-                    appendLog("[${ts()}] TERMINATING: ${parts[1]}")
-                }
+            "Terminate" -> {
+                val reason = intent.getStringExtra("reason") ?: "Unknown"
+                appendLog("[${ts()}] WORKER TERMINATED: $reason")
             }
         }
         
@@ -376,6 +351,15 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        
+        // Auto-restart worker if it stopped
+        if (hasRequiredPermissions() && connectIQService.isInitialized()) {
+            if (!isListenerRunning()) {
+                appendLog("[${ts()}] Worker stopped, restarting...")
+                startWorker()
+            }
+        }
+        
         updateServiceStatus()
     }
     

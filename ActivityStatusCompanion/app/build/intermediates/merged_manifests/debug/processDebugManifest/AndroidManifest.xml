@@ -36,7 +36,6 @@
         android:appComponentFactory="androidx.core.app.CoreComponentFactory"
         android:debuggable="true"
         android:extractNativeLibs="false"
-        android:icon="@mipmap/ic_launcher"
         android:label="Garmin Listener"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light" >
@@ -55,12 +54,8 @@
             android:enabled="true"
             android:exported="true" >
             <intent-filter>
-
-                <!-- Internal intents -->
                 <action android:name="net.xrxss15.internal.START" />
                 <action android:name="net.xrxss15.internal.STOP" />
-
-                <!-- Public intent for Tasker -->
                 <action android:name="net.xrxss15.GARMIN_ACTIVITY_LISTENER_TERMINATE" />
             </intent-filter>
         </receiver>

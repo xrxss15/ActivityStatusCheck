@@ -261,7 +261,7 @@ class MainActivity : Activity() {
         
         val filter = IntentFilter(ActivityStatusCheckReceiver.ACTION_EVENT)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(messageReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            registerReceiver(messageReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
             registerReceiver(messageReceiver, filter)
         }

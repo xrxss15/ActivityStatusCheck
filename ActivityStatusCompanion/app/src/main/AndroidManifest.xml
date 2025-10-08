@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     package="net.xrxss15">
 
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -37,6 +38,12 @@
                 <action android:name="net.xrxss15.GARMIN_ACTIVITY_LISTENER_TERMINATE" />
             </intent-filter>
         </receiver>
+
+        <!-- REQUIRED by Android 14+ for WorkManager long-running workers -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
 
     </application>
 

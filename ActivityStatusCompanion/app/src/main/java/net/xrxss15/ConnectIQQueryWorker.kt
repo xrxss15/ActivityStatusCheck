@@ -222,7 +222,6 @@ class ConnectIQQueryWorker(
             val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
                 putExtra("type", "Terminate")
                 putExtra("reason", reason)
-                addCategory(Intent.CATEGORY_DEFAULT)
             }
             
             applicationContext.sendBroadcast(intent)

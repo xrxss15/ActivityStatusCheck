@@ -201,7 +201,6 @@ class ConnectIQService private constructor() {
                 putExtra("time", time)
                 putExtra("activity", activity)
                 putExtra("duration", duration)
-                addCategory(Intent.CATEGORY_DEFAULT)
             }
             
             context.sendBroadcast(intent)
@@ -221,7 +220,6 @@ class ConnectIQService private constructor() {
             val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
                 putExtra("type", "DeviceList")
                 putExtra("devices", deviceNames)
-                addCategory(Intent.CATEGORY_DEFAULT)
             }
             
             context.sendBroadcast(intent)

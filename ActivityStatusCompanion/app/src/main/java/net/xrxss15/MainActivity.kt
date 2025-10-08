@@ -78,17 +78,17 @@ class MainActivity : Activity() {
         
         connectIQService.initializeSdkIfNeeded(this) {
             handler.post {
-                appendLog("[${ts()}] ✓ SDK initialized successfully")
+                appendLog("[${ts()}] SDK initialized successfully")
                 
                 handler.postDelayed({
                     val devices = connectIQService.getConnectedRealDevices()
                     appendLog("[${ts()}] Found ${devices.size} connected device(s)")
                     devices.forEach { 
-                        appendLog("[${ts()}]   • ${it.friendlyName}")
+                        appendLog("[${ts()}]   - ${it.friendlyName}")
                     }
                     
                     if (!isBatteryOptimizationDisabled()) {
-                        appendLog("⚠ Battery optimization is enabled")
+                        appendLog("Battery optimization is enabled")
                         appendLog("Press 'Battery Settings' to allow background running")
                     }
                     
@@ -217,9 +217,9 @@ class MainActivity : Activity() {
         handler.postDelayed({
             val running = isListenerRunning()
             statusText.text = if (running) {
-                "Status: ✓ Listener Active"
+                "Status: Listener Active"
             } else {
-                "Status: ✗ Listener Inactive"
+                "Status: Listener Inactive"
             }
         }, 500)
     }
@@ -276,7 +276,7 @@ class MainActivity : Activity() {
                 val duration = intent.getIntExtra("duration", 0)
                 
                 appendLog("")
-                appendLog("━━━━━━━━━━━━━━━━━━━━━━━━")
+                appendLog("========================================")
                 appendLog("ACTIVITY EVENT: $type")
                 appendLog("Device: $device")
                 appendLog("Time: ${formatTimestamp(time * 1000)}")
@@ -284,7 +284,7 @@ class MainActivity : Activity() {
                 if (type == "Stopped") {
                     appendLog("Duration: ${formatDuration(duration)}")
                 }
-                appendLog("━━━━━━━━━━━━━━━━━━━━━━━━")
+                appendLog("========================================")
                 appendLog("")
             }
             
@@ -293,7 +293,7 @@ class MainActivity : Activity() {
                 val deviceList = if (devices.isEmpty()) emptyList() else devices.split("/")
                 appendLog("[${ts()}] Devices updated: ${deviceList.size} device(s)")
                 deviceList.forEach {
-                    appendLog("[${ts()}]   • $it")
+                    appendLog("[${ts()}]   - $it")
                 }
             }
             

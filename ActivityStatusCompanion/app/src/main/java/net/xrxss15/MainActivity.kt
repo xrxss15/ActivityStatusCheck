@@ -53,12 +53,6 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Check if launched from notification Exit button
-        if (intent.getBooleanExtra("EXIT_APP", false)) {
-            exitApp()
-            return
-        }
-
         createUI()
         registerBroadcastReceiver()
 

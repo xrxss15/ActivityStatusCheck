@@ -60,7 +60,6 @@
             </intent-filter>
         </receiver>
 
-        <!-- REQUIRED by Android 14+ for WorkManager long-running workers -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:directBootAware="false"

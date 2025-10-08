@@ -45,7 +45,6 @@ class ConnectIQQueryWorker(
             setForeground(createForegroundInfo())
             Log.i(TAG, "Foreground service started")
             
-            // Wait for MainActivity to initialize SDK
             Log.i(TAG, "Waiting for SDK initialization...")
             var attempts = 0
             while (!connectIQService.isInitialized() && attempts < 300) {
@@ -62,25 +61,21 @@ class ConnectIQQueryWorker(
             Log.i(TAG, "SDK initialized, waiting 15s for device discovery")
             delay(15000)
             
-            // Set callback for notification updates
             connectIQService.setMessageCallback { payload, deviceName, timestamp ->
                 lastMessage = parseMessage(payload, deviceName)
                 lastMessageTime = timestamp
                 updateNotification()
             }
             
-            // Set device change callback
             connectIQService.setDeviceChangeCallback {
                 checkDevices()
             }
             
-            // Register listeners and check devices
             connectIQService.registerListenersForAllDevices()
             checkDevices()
             
             Log.i(TAG, "Listening for events")
             
-            // Wait indefinitely until cancelled
             suspendCancellableCoroutine<Nothing> { continuation ->
                 continuation.invokeOnCancellation {
                     Log.i(TAG, "Worker cancelled")
@@ -153,11 +148,8 @@ class ConnectIQQueryWorker(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         
-        val exitIntent = Intent(applicationContext, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            putExtra("EXIT_APP", true)
-        }
-        val exitPendingIntent = PendingIntent.getActivity(
+        val exitIntent = Intent(ActivityStatusCheckReceiver.ACTION_TERMINATE)
+        val exitPendingIntent = PendingIntent.getBroadcast(
             applicationContext, 1, exitIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )

@@ -43,10 +43,10 @@ class ConnectIQQueryWorker(
             notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             
             setForeground(createForegroundInfo())
-            Log.i(TAG, "✓ Foreground service started")
+            Log.i(TAG, "Foreground service started")
             
             // Wait for MainActivity to initialize SDK
-            Log.i(TAG, "Waiting for SDK initialization by MainActivity...")
+            Log.i(TAG, "Waiting for SDK initialization...")
             var attempts = 0
             while (!connectIQService.isInitialized() && attempts < 300) {
                 delay(100)
@@ -59,11 +59,11 @@ class ConnectIQQueryWorker(
                 return Result.failure()
             }
             
-            Log.i(TAG, "✓ SDK is initialized, proceeding...")
+            Log.i(TAG, "SDK initialized, waiting 15s for device discovery")
+            delay(15000)
             
             // Set callback for notification updates
             connectIQService.setMessageCallback { payload, deviceName, timestamp ->
-                Log.i(TAG, "Callback: Message from $deviceName")
                 lastMessage = parseMessage(payload, deviceName)
                 lastMessageTime = timestamp
                 updateNotification()
@@ -71,15 +71,14 @@ class ConnectIQQueryWorker(
             
             // Set device change callback
             connectIQService.setDeviceChangeCallback {
-                Log.i(TAG, "Device change detected by callback")
                 checkDevices()
             }
             
-            // Register listeners
+            // Register listeners and check devices
             connectIQService.registerListenersForAllDevices()
             checkDevices()
             
-            Log.i(TAG, "Event listeners registered - entering wait state")
+            Log.i(TAG, "Listening for events")
             
             // Wait indefinitely until cancelled
             suspendCancellableCoroutine<Nothing> { continuation ->
@@ -107,7 +106,6 @@ class ConnectIQQueryWorker(
         val currentIds = currentDevices.map { it.deviceIdentifier }.toSet()
         
         if (currentIds != lastDeviceIds) {
-            Log.i(TAG, "Device list changed: ${lastDeviceIds.size} -> ${currentIds.size}")
             lastDeviceIds = currentIds
             connectedDeviceNames = currentDevices.map { it.friendlyName ?: "Unknown" }
             
@@ -194,7 +192,7 @@ class ConnectIQQueryWorker(
             sb.append("Devices: None\n")
         } else {
             sb.append("Devices:\n")
-            connectedDeviceNames.forEach { sb.append("  • $it\n") }
+            connectedDeviceNames.forEach { sb.append("  - $it\n") }
         }
         if (lastMessage != null && lastMessageTime > 0) {
             sb.append("\nLast: $lastMessage\n${formatTime(lastMessageTime)}")
@@ -228,7 +226,7 @@ class ConnectIQQueryWorker(
             }
             
             applicationContext.sendBroadcast(intent)
-            Log.i(TAG, "✓ Terminate broadcast sent: $reason")
+            Log.i(TAG, "Terminate broadcast sent: $reason")
             
         } catch (e: Exception) {
             Log.e(TAG, "Broadcast failed", e)

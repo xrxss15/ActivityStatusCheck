@@ -49,13 +49,13 @@ class ConnectIQService private constructor() {
             return
         }
 
-        log("Initializing SDK...")
+        log("Initializing SDK")
         
         connectIQ = ConnectIQ.getInstance(context.applicationContext, ConnectIQ.IQConnectType.WIRELESS)
         
         connectIQ?.initialize(context.applicationContext, false, object : ConnectIQListener {
             override fun onSdkReady() {
-                log("✓ SDK initialized successfully")
+                log("SDK initialized successfully")
                 
                 Thread {
                     Thread.sleep(DISCOVERY_DELAY_MS)
@@ -65,7 +65,7 @@ class ConnectIQService private constructor() {
             }
 
             override fun onInitializeError(status: IQSdkErrorStatus?) {
-                logError("✗ SDK initialization failed: $status")
+                logError("SDK initialization failed: $status")
             }
 
             override fun onSdkShutDown() {
@@ -107,22 +107,18 @@ class ConnectIQService private constructor() {
         val all = try {
             ciq.knownDevices
         } catch (e: Exception) {
-            log("knownDevices threw: ${e.message}")
             emptyList()
         }
         
         val candidates = all?.filter { it.deviceIdentifier != KNOWN_SIMULATOR_ID } ?: emptyList()
-        log("Known devices: ${all?.size ?: 0}, candidates: ${candidates.size}")
         
         candidates.forEach { device ->
             try {
                 ciq.registerForDeviceEvents(device) { dev, status ->
-                    log("Device event: ${dev.friendlyName} -> $status")
                     if (status == IQDevice.IQDeviceStatus.CONNECTED) {
                         deviceChangeCallback?.invoke()
                     }
                 }
-                log("Registered device events for ${device.friendlyName}")
             } catch (e: Exception) {
                 logError("Failed to register device events: ${e.message}")
             }
@@ -131,7 +127,7 @@ class ConnectIQService private constructor() {
 
     fun registerListenersForAllDevices() {
         val devices = getConnectedRealDevices()
-        log("Registering ${devices.size} device(s) for app UUID: $APP_UUID")
+        log("Registering ${devices.size} device(s)")
         
         knownDevices.clear()
         knownDevices.addAll(devices)
@@ -149,7 +145,6 @@ class ConnectIQService private constructor() {
         val appKey = "${device.deviceIdentifier}:$APP_UUID"
         
         if (appListeners.containsKey(appKey)) {
-            log("Already registered for ${device.friendlyName}")
             return
         }
         
@@ -163,10 +158,7 @@ class ConnectIQService private constructor() {
                 
                 log("Message from $deviceName: $payload")
                 
-                // Call UI callback if set (for MainActivity and Worker)
                 messageCallback?.invoke(payload, deviceName, timestamp)
-                
-                // ALWAYS send broadcast (for Tasker)
                 sendMessageBroadcast(payload, deviceName)
             }
         }
@@ -174,7 +166,7 @@ class ConnectIQService private constructor() {
         try {
             ciq.registerForAppEvents(device, app, appListener)
             appListeners[appKey] = appListener
-            log("✓ Registered app listener for ${device.friendlyName}")
+            log("Registered listener for ${device.friendlyName}")
         } catch (e: Exception) {
             logError("Failed to register app listener: ${e.message}")
         }
@@ -183,7 +175,6 @@ class ConnectIQService private constructor() {
     private fun sendMessageBroadcast(payload: String, deviceName: String) {
         val context = appContext ?: return
         
-        // Parse payload: "STARTED|timestamp|activity|duration"
         val parts = payload.split("|")
         if (parts.size < 4) {
             logError("Invalid payload format: $payload")
@@ -214,10 +205,10 @@ class ConnectIQService private constructor() {
             }
             
             context.sendBroadcast(intent)
-            log("✓ Broadcast sent: $eventType for $activity on $deviceName")
+            log("Broadcast sent: $eventType")
             
         } catch (e: Exception) {
-            logError("Failed to parse message: $payload - ${e.message}")
+            logError("Failed to parse message: ${e.message}")
         }
     }
 
@@ -234,7 +225,6 @@ class ConnectIQService private constructor() {
             }
             
             context.sendBroadcast(intent)
-            log("✓ Device list broadcast sent: $deviceNames")
             
         } catch (e: Exception) {
             logError("Device list broadcast failed: ${e.message}")
@@ -243,7 +233,6 @@ class ConnectIQService private constructor() {
 
     fun setMessageCallback(callback: ((String, String, Long) -> Unit)?) {
         messageCallback = callback
-        log("Message callback ${if (callback != null) "set" else "cleared"}")
     }
 
     fun setDeviceChangeCallback(callback: (() -> Unit)?) {

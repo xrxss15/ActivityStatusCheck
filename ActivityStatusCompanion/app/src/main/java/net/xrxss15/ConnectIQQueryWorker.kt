@@ -69,7 +69,6 @@ class ConnectIQQueryWorker(
                 connectedDeviceNames = connectIQService.getConnectedRealDevices()
                     .map { it.friendlyName ?: "Unknown" }
                 
-                // Send device list update when devices change
                 val deviceNames = connectedDeviceNames.joinToString("/")
                 val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
                     putExtra("type", "DeviceList")
@@ -80,10 +79,8 @@ class ConnectIQQueryWorker(
                 updateNotification()
             }
             
-            // Register listeners - ConnectIQService will broadcast device list
             connectIQService.registerListenersForAllDevices()
             
-            // Update local device list for notification
             connectedDeviceNames = connectIQService.getConnectedRealDevices()
                 .map { it.friendlyName ?: "Unknown" }
             
@@ -98,14 +95,15 @@ class ConnectIQQueryWorker(
             }
             
         } catch (e: CancellationException) {
-            Log.i(TAG, "Worker cancelled")
-            sendTerminateBroadcast("Stopped")
+            Log.i(TAG, "Worker cancelled via exception")
+            sendTerminateBroadcast("Worker cancelled")
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Worker error", e)
             sendTerminateBroadcast(e.message ?: "Unknown error")
             Result.failure()
         } finally {
+            Log.i(TAG, "Worker finally block")
             connectIQService.setMessageCallback(null)
             connectIQService.setDeviceChangeCallback(null)
         }

@@ -14,6 +14,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
 import android.widget.*
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -39,6 +40,7 @@ class MainActivity : Activity() {
 
     companion object {
         const val ACTION_TERMINATE_UI = "net.xrxss15.internal.TERMINATE_UI"
+        private const val TAG = "MainActivity"
     }
 
     private fun ts(): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
@@ -374,10 +376,26 @@ class MainActivity : Activity() {
     
     override fun onDestroy() {
         super.onDestroy()
+        
+        // Send terminate broadcast when MainActivity is destroyed
+        try {
+            val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
+                putExtra("type", "Terminate")
+                putExtra("reason", "MainActivity destroyed")
+            }
+            sendBroadcast(intent)
+            Log.i(TAG, "Terminate broadcast sent from onDestroy")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to send terminate broadcast: ${e.message}")
+        }
+        
+        // Clean up broadcast receiver
         messageReceiver?.let {
             try {
                 unregisterReceiver(it)
-            } catch (e: IllegalArgumentException) {}
+            } catch (e: IllegalArgumentException) {
+                // Already unregistered
+            }
         }
         messageReceiver = null
     }

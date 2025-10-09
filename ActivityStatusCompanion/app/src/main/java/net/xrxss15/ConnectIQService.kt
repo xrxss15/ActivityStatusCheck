@@ -134,8 +134,18 @@ class ConnectIQService private constructor() {
         candidates.forEach { device ->
             try {
                 ciq.registerForDeviceEvents(device) { dev, status ->
-                    if (status == IQDevice.IQDeviceStatus.CONNECTED) {
-                        deviceChangeCallback?.invoke()
+                    log("Device ${dev.friendlyName} status changed: $status")
+                    
+                    // Trigger callback on connect, disconnect, and unpair
+                    when (status) {
+                        IQDevice.IQDeviceStatus.CONNECTED,
+                        IQDevice.IQDeviceStatus.NOT_CONNECTED,
+                        IQDevice.IQDeviceStatus.NOT_PAIRED -> {
+                            deviceChangeCallback?.invoke()
+                        }
+                        else -> {
+                            // Do nothing for unknown statuses
+                        }
                     }
                 }
             } catch (e: Exception) {

@@ -66,16 +66,18 @@ class ConnectIQQueryWorker(
             }
             
             connectIQService.setDeviceChangeCallback {
+                Log.i(TAG, "Device change detected, updating device list")
                 connectedDeviceNames = connectIQService.getConnectedRealDevices()
                     .map { it.friendlyName ?: "Unknown" }
                 
-                // Send device list update when devices change
+                // Send device list update when devices change (connect/disconnect)
                 val deviceNames = connectedDeviceNames.joinToString("/")
                 val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
                     putExtra("type", "DeviceList")
                     putExtra("devices", deviceNames)
                 }
                 applicationContext.sendBroadcast(intent)
+                Log.i(TAG, "Device list broadcast sent after change: ${connectedDeviceNames.size} device(s)")
                 
                 updateNotification()
             }
@@ -95,7 +97,7 @@ class ConnectIQQueryWorker(
                 putExtra("devices", deviceNames)
             }
             applicationContext.sendBroadcast(deviceListIntent)
-            Log.i(TAG, "Device list broadcast sent: ${connectedDeviceNames.size} device(s)")
+            Log.i(TAG, "Initial device list broadcast sent: ${connectedDeviceNames.size} device(s)")
             
             updateNotification()
             

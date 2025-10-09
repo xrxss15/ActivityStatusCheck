@@ -177,12 +177,16 @@ class ConnectIQService private constructor() {
             return
         }
         
+        // Capture device name at registration time - guaranteed correct for this device
+        val knownDeviceName = device.friendlyName?.takeIf { it.isNotEmpty() } ?: "Unknown Device"
+        
         val appListener = IQApplicationEventListener { dev, _, messages, _ ->
             if (dev == null || messages.isNullOrEmpty()) return@IQApplicationEventListener
             
             messages.forEach { msg ->
                 val payload = msg.toString()
-                val deviceName = dev.friendlyName ?: "Unknown"
+                // Use captured device name - always correct because listener is per-device
+                val deviceName = knownDeviceName
                 val timestamp = System.currentTimeMillis()
                 
                 log("Message from $deviceName: $payload")
@@ -195,7 +199,7 @@ class ConnectIQService private constructor() {
         try {
             ciq.registerForAppEvents(device, app, appListener)
             appListeners[appKey] = appListener
-            log("Registered listener for ${device.friendlyName}")
+            log("Registered listener for $knownDeviceName")
         } catch (e: Exception) {
             logError("Failed to register app listener: ${e.message}")
         }
@@ -233,7 +237,7 @@ class ConnectIQService private constructor() {
             }
             
             context.sendBroadcast(intent)
-            log("Broadcast sent: $eventType")
+            log("Broadcast sent: $eventType from $deviceName")
             
         } catch (e: Exception) {
             logError("Failed to parse message: ${e.message}")

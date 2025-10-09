@@ -30,7 +30,6 @@ class ConnectIQQueryWorker(
     }
 
     private val connectIQService = ConnectIQService.getInstance()
-    private var lastDeviceIds = emptySet<Long>()
     private var connectedDeviceNames = listOf<String>()
     private var lastMessage: String? = null
     private var lastMessageTime: Long = 0
@@ -58,31 +57,32 @@ class ConnectIQQueryWorker(
                 return Result.failure()
             }
             
-            Log.i(TAG, "SDK initialized, checking devices")
+            Log.i(TAG, "SDK initialized")
             
-            // NO MORE 15 SECOND DELAY - devices are already discovered
-            
+            // Set message callback
             connectIQService.setMessageCallback { payload, deviceName, timestamp ->
                 lastMessage = parseMessage(payload, deviceName)
                 lastMessageTime = timestamp
                 updateNotification()
             }
             
+            // Set device change callback - just update notification when devices change
             connectIQService.setDeviceChangeCallback {
-                checkDevices()
+                // Device list changed, update our notification
+                connectedDeviceNames = connectIQService.getConnectedRealDevices()
+                    .map { it.friendlyName ?: "Unknown" }
+                updateNotification()
             }
             
+            // Register listeners (this also broadcasts device list)
             connectIQService.registerListenersForAllDevices()
-            checkDevices()
             
-            // Log connected devices immediately
-            val devices = connectIQService.getConnectedRealDevices()
-            Log.i(TAG, "Found ${devices.size} connected device(s)")
-            devices.forEach {
-                Log.i(TAG, "  - ${it.friendlyName}")
-            }
+            // Initialize our notification device list
+            connectedDeviceNames = connectIQService.getConnectedRealDevices()
+                .map { it.friendlyName ?: "Unknown" }
+            updateNotification()
             
-            Log.i(TAG, "Listening for events")
+            Log.i(TAG, "Listening for events (${connectedDeviceNames.size} device(s))")
             
             suspendCancellableCoroutine<Nothing> { continuation ->
                 continuation.invokeOnCancellation {
@@ -101,21 +101,6 @@ class ConnectIQQueryWorker(
         } finally {
             connectIQService.setMessageCallback(null)
             connectIQService.setDeviceChangeCallback(null)
-        }
-    }
-    
-    private fun checkDevices() {
-        val currentDevices = connectIQService.getConnectedRealDevices()
-        val currentIds = currentDevices.map { it.deviceIdentifier }.toSet()
-        
-        if (currentIds != lastDeviceIds) {
-            lastDeviceIds = currentIds
-            connectedDeviceNames = currentDevices.map { it.friendlyName ?: "Unknown" }
-            
-            Log.i(TAG, "Device list changed: ${connectedDeviceNames.size} device(s)")
-            
-            connectIQService.registerListenersForAllDevices()
-            updateNotification()
         }
     }
     
@@ -158,7 +143,9 @@ class ConnectIQQueryWorker(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         
-        val exitIntent = Intent(ActivityStatusCheckReceiver.ACTION_TERMINATE)
+        val exitIntent = Intent(ActivityStatusCheckReceiver.ACTION_TERMINATE).apply {
+            setClass(applicationContext, ActivityStatusCheckReceiver::class.java)
+        }
         val exitPendingIntent = PendingIntent.getBroadcast(
             applicationContext, 1, exitIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE

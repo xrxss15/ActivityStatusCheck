@@ -66,38 +66,26 @@ class ConnectIQQueryWorker(
             }
             
             connectIQService.setDeviceChangeCallback {
-                Log.i(TAG, "Device change detected, updating device list")
                 connectedDeviceNames = connectIQService.getConnectedRealDevices()
                     .map { it.friendlyName ?: "Unknown" }
                 
-                // Send device list update when devices change (connect/disconnect)
+                // Send device list update when devices change
                 val deviceNames = connectedDeviceNames.joinToString("/")
                 val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
                     putExtra("type", "DeviceList")
                     putExtra("devices", deviceNames)
                 }
                 applicationContext.sendBroadcast(intent)
-                Log.i(TAG, "Device list broadcast sent after change: ${connectedDeviceNames.size} device(s)")
                 
                 updateNotification()
             }
             
-            // Register listeners (ConnectIQService also broadcasts, but timing might be off)
+            // Register listeners - ConnectIQService will broadcast device list
             connectIQService.registerListenersForAllDevices()
             
-            // Update local device list
+            // Update local device list for notification
             connectedDeviceNames = connectIQService.getConnectedRealDevices()
                 .map { it.friendlyName ?: "Unknown" }
-            
-            // Ensure device list is broadcast to MainActivity
-            delay(100) // Small delay to ensure MainActivity receiver is ready
-            val deviceNames = connectedDeviceNames.joinToString("/")
-            val deviceListIntent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
-                putExtra("type", "DeviceList")
-                putExtra("devices", deviceNames)
-            }
-            applicationContext.sendBroadcast(deviceListIntent)
-            Log.i(TAG, "Initial device list broadcast sent: ${connectedDeviceNames.size} device(s)")
             
             updateNotification()
             

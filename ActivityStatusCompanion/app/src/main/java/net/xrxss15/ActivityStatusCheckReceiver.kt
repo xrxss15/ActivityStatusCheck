@@ -213,7 +213,7 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
     }
 
     private fun startListener(context: Context) {
-        Log.i(TAG, "Starting Garmin listener...")
+        Log.i(TAG, "Starting Garmin listener")
         
         val workRequest = OneTimeWorkRequestBuilder<ConnectIQQueryWorker>().build()
         
@@ -228,7 +228,7 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
     }
 
     private fun stopListener(context: Context) {
-        Log.i(TAG, "Stopping Garmin listener...")
+        Log.i(TAG, "Stopping Garmin listener")
         
         WorkManager.getInstance(context.applicationContext)
             .cancelUniqueWork("garmin_listener")
@@ -237,13 +237,20 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
     }
 
     private fun terminateApp(context: Context) {
-        Log.i(TAG, "Terminating entire app...")
+        Log.i(TAG, "Terminating entire app")
         
-        // Stop worker
+        // Stop worker first
         stopListener(context)
         
-        // Shutdown SDK
-        ConnectIQService.getInstance().shutdown()
+        // Give worker time to stop cleanly
+        Thread.sleep(300)
+        
+        // Shutdown SDK with application context (never becomes null)
+        try {
+            ConnectIQService.getInstance().shutdown()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during shutdown: ${e.message}")
+        }
         
         // Kill app process
         android.os.Process.killProcess(android.os.Process.myPid())

@@ -41,6 +41,7 @@ class ConnectIQService private constructor() {
     private fun logError(msg: String) = android.util.Log.e(TAG, msg)
 
     fun initializeSdkIfNeeded(context: Context, onReady: (() -> Unit)? = null) {
+        // Always use application context to avoid context becoming null
         appContext = context.applicationContext
         
         if (isInitialized()) {
@@ -51,9 +52,9 @@ class ConnectIQService private constructor() {
 
         log("Initializing SDK")
         
-        connectIQ = ConnectIQ.getInstance(context.applicationContext, ConnectIQ.IQConnectType.WIRELESS)
+        connectIQ = ConnectIQ.getInstance(appContext, ConnectIQ.IQConnectType.WIRELESS)
         
-        connectIQ?.initialize(context.applicationContext, false, object : ConnectIQListener {
+        connectIQ?.initialize(appContext, false, object : ConnectIQListener {
             override fun onSdkReady() {
                 log("SDK initialized successfully")
                 
@@ -238,12 +239,22 @@ class ConnectIQService private constructor() {
     }
 
     fun shutdown() {
-        connectIQ?.shutdown(null)
+        log("Shutting down ConnectIQ SDK")
+        
+        try {
+            // Use appContext which is the Application context and never becomes null
+            appContext?.let { ctx ->
+                connectIQ?.shutdown(ctx)
+            }
+        } catch (e: Exception) {
+            logError("Shutdown error: ${e.message}")
+        }
+        
         appListeners.clear()
         knownDevices.clear()
         messageCallback = null
         deviceChangeCallback = null
         connectIQ = null
-        appContext = null
+        // Don't null appContext yet, might be needed for cleanup
     }
 }

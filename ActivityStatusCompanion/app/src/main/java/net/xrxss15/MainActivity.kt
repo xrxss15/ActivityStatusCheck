@@ -191,14 +191,23 @@ class MainActivity : Activity() {
     }
 
     private fun exitApp() {
+        appendLog("[${ts()}] Shutting down...")
+        
+        // Stop the worker first
         val intent = Intent(ActivityStatusCheckReceiver.ACTION_STOP).apply {
             setPackage(packageName)
         }
         sendBroadcast(intent)
         
-        connectIQService.shutdown()
-        finishAndRemoveTask()
-        System.exit(0)
+        // Wait a moment for worker to stop
+        handler.postDelayed({
+            // Shutdown SDK properly
+            connectIQService.shutdown()
+            
+            // Exit cleanly
+            finishAndRemoveTask()
+            System.exit(0)
+        }, 500)
     }
 
     private fun isListenerRunning(): Boolean {

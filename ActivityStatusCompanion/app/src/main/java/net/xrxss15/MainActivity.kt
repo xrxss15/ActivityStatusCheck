@@ -37,6 +37,10 @@ class MainActivity : Activity() {
     private var messageReceiver: BroadcastReceiver? = null
     private val connectIQService = ConnectIQService.getInstance()
 
+    companion object {
+        const val ACTION_TERMINATE_UI = "net.xrxss15.internal.TERMINATE_UI"
+    }
+
     private fun ts(): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
     
     private fun formatTimestamp(timestampMillis: Long): String {
@@ -53,6 +57,12 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Handle terminate from broadcast receiver or notification
+        if (intent.action == ACTION_TERMINATE_UI) {
+            finishAndRemoveTask()
+            return
+        }
+
         createUI()
         registerBroadcastReceiver()
 
@@ -65,6 +75,16 @@ class MainActivity : Activity() {
         }
 
         updateServiceStatus()
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        
+        // Handle terminate if activity is already running
+        if (intent?.action == ACTION_TERMINATE_UI) {
+            finishAndRemoveTask()
+        }
     }
 
     private fun initializeAndStart() {
@@ -191,23 +211,12 @@ class MainActivity : Activity() {
     }
 
     private fun exitApp() {
-        appendLog("[${ts()}] Shutting down...")
-        
-        // Stop the worker first
-        val intent = Intent(ActivityStatusCheckReceiver.ACTION_STOP).apply {
+        // Use the unified termination path via broadcast
+        val intent = Intent(ActivityStatusCheckReceiver.ACTION_TERMINATE).apply {
             setPackage(packageName)
+            setClass(this@MainActivity, ActivityStatusCheckReceiver::class.java)
         }
         sendBroadcast(intent)
-        
-        // Wait a moment for worker to stop
-        handler.postDelayed({
-            // Shutdown SDK properly
-            connectIQService.shutdown()
-            
-            // Exit cleanly
-            finishAndRemoveTask()
-            System.exit(0)
-        }, 500)
     }
 
     private fun isListenerRunning(): Boolean {
@@ -255,14 +264,23 @@ class MainActivity : Activity() {
     private fun registerBroadcastReceiver() {
         messageReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                if (intent?.action == ActivityStatusCheckReceiver.ACTION_EVENT) {
-                    val type = intent.getStringExtra("type")
-                    handleGarminEvent(type, intent)
+                when (intent?.action) {
+                    ActivityStatusCheckReceiver.ACTION_EVENT -> {
+                        val type = intent.getStringExtra("type")
+                        handleGarminEvent(type, intent)
+                    }
+                    ACTION_TERMINATE_UI -> {
+                        finishAndRemoveTask()
+                    }
                 }
             }
         }
         
-        val filter = IntentFilter(ActivityStatusCheckReceiver.ACTION_EVENT)
+        val filter = IntentFilter().apply {
+            addAction(ActivityStatusCheckReceiver.ACTION_EVENT)
+            addAction(ACTION_TERMINATE_UI)
+        }
+        
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(messageReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
@@ -355,7 +373,6 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         
-        // Auto-restart worker if it stopped
         if (hasRequiredPermissions() && connectIQService.isInitialized()) {
             if (!isListenerRunning()) {
                 appendLog("[${ts()}] Worker stopped, restarting...")

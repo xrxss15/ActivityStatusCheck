@@ -54,6 +54,7 @@
  *     - Send Intent action: net.xrxss15.GARMIN_ACTIVITY_LISTENER_TERMINATE
  *     - Target: Broadcast Receiver
  *     - Package: net.xrxss15
+ *     - Class: net.xrxss15.ActivityStatusCheckReceiver
  *
  * 4. RECEIVING ACTIVITY EVENTS IN TASKER
  * ---------------------------------------
@@ -154,6 +155,7 @@
  *   Purpose: Fully terminate app and worker
  *   Target: Broadcast Receiver
  *   Package: net.xrxss15
+ *   Class: net.xrxss15.ActivityStatusCheckReceiver
  *   Extras: None
  *
  *   Tasker Configuration:
@@ -161,6 +163,11 @@
  *     Action: net.xrxss15.GARMIN_ACTIVITY_LISTENER_TERMINATE
  *     Target: Broadcast Receiver
  *     Package: net.xrxss15
+ *     Class: net.xrxss15.ActivityStatusCheckReceiver
+ *
+ *   Test with adb:
+ *     adb shell am broadcast -a net.xrxss15.GARMIN_ACTIVITY_LISTENER_TERMINATE \
+ *       -n net.xrxss15/.ActivityStatusCheckReceiver
  *
  * ===============================================================================
  */
@@ -196,17 +203,17 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
         
         when (intent.action) {
             ACTION_START -> {
-                Log.i(TAG, "Starting listener (internal)")
+                Log.i(TAG, "Starting listener")
                 startListener(context)
             }
             
             ACTION_STOP -> {
-                Log.i(TAG, "Stopping listener (internal)")
+                Log.i(TAG, "Stopping listener")
                 stopListener(context)
             }
             
             ACTION_TERMINATE -> {
-                Log.i(TAG, "Terminating app completely (Tasker)")
+                Log.i(TAG, "Terminating app")
                 terminateApp(context)
             }
         }
@@ -239,20 +246,26 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
     private fun terminateApp(context: Context) {
         Log.i(TAG, "Terminating entire app")
         
-        // Stop worker first
+        // 1. Tell MainActivity to finish and remove from recents
+        val finishIntent = Intent(MainActivity.ACTION_TERMINATE_UI).apply {
+            setPackage(context.packageName)
+        }
+        context.sendBroadcast(finishIntent)
+        
+        // 2. Stop worker
         stopListener(context)
         
-        // Give worker time to stop cleanly
-        Thread.sleep(300)
+        // 3. Give time for UI to finish and worker to stop
+        Thread.sleep(500)
         
-        // Shutdown SDK with application context (never becomes null)
+        // 4. Shutdown SDK
         try {
             ConnectIQService.getInstance().shutdown()
         } catch (e: Exception) {
             Log.e(TAG, "Error during shutdown: ${e.message}")
         }
         
-        // Kill app process
+        // 5. Kill process
         android.os.Process.killProcess(android.os.Process.myPid())
     }
 }

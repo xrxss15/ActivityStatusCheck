@@ -68,13 +68,35 @@ class ConnectIQQueryWorker(
             connectIQService.setDeviceChangeCallback {
                 connectedDeviceNames = connectIQService.getConnectedRealDevices()
                     .map { it.friendlyName ?: "Unknown" }
+                
+                // Send device list update when devices change
+                val deviceNames = connectedDeviceNames.joinToString("/")
+                val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
+                    putExtra("type", "DeviceList")
+                    putExtra("devices", deviceNames)
+                }
+                applicationContext.sendBroadcast(intent)
+                
                 updateNotification()
             }
             
+            // Register listeners (ConnectIQService also broadcasts, but timing might be off)
             connectIQService.registerListenersForAllDevices()
             
+            // Update local device list
             connectedDeviceNames = connectIQService.getConnectedRealDevices()
                 .map { it.friendlyName ?: "Unknown" }
+            
+            // Ensure device list is broadcast to MainActivity
+            delay(100) // Small delay to ensure MainActivity receiver is ready
+            val deviceNames = connectedDeviceNames.joinToString("/")
+            val deviceListIntent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
+                putExtra("type", "DeviceList")
+                putExtra("devices", deviceNames)
+            }
+            applicationContext.sendBroadcast(deviceListIntent)
+            Log.i(TAG, "Device list broadcast sent: ${connectedDeviceNames.size} device(s)")
+            
             updateNotification()
             
             Log.i(TAG, "Listening for events (${connectedDeviceNames.size} device(s))")

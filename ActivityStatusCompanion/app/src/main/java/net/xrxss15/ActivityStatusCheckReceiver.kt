@@ -187,14 +187,9 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
     companion object {
         private const val TAG = "GarminActivityListener.Receiver"
         
-        // INTERNAL INTENTS - Used by MainActivity
         const val ACTION_START = "net.xrxss15.internal.START"
         const val ACTION_STOP = "net.xrxss15.internal.STOP"
-        
-        // PUBLIC INTENT - For Tasker to terminate app completely
         const val ACTION_TERMINATE = "net.xrxss15.GARMIN_ACTIVITY_LISTENER_TERMINATE"
-        
-        // OUTBOUND BROADCAST - Sent to Tasker when events occur
         const val ACTION_EVENT = "net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT"
     }
 
@@ -258,9 +253,9 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
         // 3. Give time for UI to finish and worker to stop
         Thread.sleep(500)
         
-        // 4. Shutdown SDK
+        // 4. Properly reset singleton (shuts down SDK and clears instance)
         try {
-            ConnectIQService.getInstance().shutdown()
+            ConnectIQService.resetInstance()
         } catch (e: Exception) {
             Log.e(TAG, "Error during shutdown: ${e.message}")
         }

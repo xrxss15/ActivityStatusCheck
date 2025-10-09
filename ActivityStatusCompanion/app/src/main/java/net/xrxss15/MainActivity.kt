@@ -57,7 +57,6 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Handle terminate from broadcast receiver or notification
         if (intent.action == ACTION_TERMINATE_UI) {
             finishAndRemoveTask()
             return
@@ -81,7 +80,6 @@ class MainActivity : Activity() {
         super.onNewIntent(intent)
         setIntent(intent)
         
-        // Handle terminate if activity is already running
         if (intent?.action == ACTION_TERMINATE_UI) {
             finishAndRemoveTask()
         }
@@ -99,7 +97,6 @@ class MainActivity : Activity() {
                     appendLog("Press 'Battery Settings' to allow background running")
                 }
                 
-                // Start worker immediately - it will check devices
                 startWorker()
             }
         }
@@ -204,7 +201,6 @@ class MainActivity : Activity() {
     }
 
     private fun exitApp() {
-        // Use the unified termination path via broadcast
         val intent = Intent(ActivityStatusCheckReceiver.ACTION_TERMINATE).apply {
             setPackage(packageName)
             setClass(this@MainActivity, ActivityStatusCheckReceiver::class.java)

@@ -28,6 +28,25 @@ class ConnectIQService private constructor() {
                 instance ?: ConnectIQService().also { instance = it }
             }
         }
+        
+        fun resetInstance() {
+            synchronized(this) {
+                instance?.let {
+                    try {
+                        it.appContext?.let { ctx ->
+                            it.connectIQ?.shutdown(ctx)
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e(TAG, "Error during reset: ${e.message}")
+                    }
+                    it.appListeners.clear()
+                    it.knownDevices.clear()
+                    it.messageCallback = null
+                    it.deviceChangeCallback = null
+                }
+                instance = null
+            }
+        }
     }
 
     private var connectIQ: ConnectIQ? = null
@@ -41,7 +60,6 @@ class ConnectIQService private constructor() {
     private fun logError(msg: String) = android.util.Log.e(TAG, msg)
 
     fun initializeSdkIfNeeded(context: Context, onReady: (() -> Unit)? = null) {
-        // Always use application context to avoid context becoming null
         appContext = context.applicationContext
         
         if (isInitialized()) {
@@ -236,25 +254,5 @@ class ConnectIQService private constructor() {
 
     fun setDeviceChangeCallback(callback: (() -> Unit)?) {
         deviceChangeCallback = callback
-    }
-
-    fun shutdown() {
-        log("Shutting down ConnectIQ SDK")
-        
-        try {
-            // Use appContext which is the Application context and never becomes null
-            appContext?.let { ctx ->
-                connectIQ?.shutdown(ctx)
-            }
-        } catch (e: Exception) {
-            logError("Shutdown error: ${e.message}")
-        }
-        
-        appListeners.clear()
-        knownDevices.clear()
-        messageCallback = null
-        deviceChangeCallback = null
-        connectIQ = null
-        // Don't null appContext yet, might be needed for cleanup
     }
 }

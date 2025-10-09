@@ -59,25 +59,20 @@ class ConnectIQQueryWorker(
             
             Log.i(TAG, "SDK initialized")
             
-            // Set message callback
             connectIQService.setMessageCallback { payload, deviceName, timestamp ->
                 lastMessage = parseMessage(payload, deviceName)
                 lastMessageTime = timestamp
                 updateNotification()
             }
             
-            // Set device change callback - just update notification when devices change
             connectIQService.setDeviceChangeCallback {
-                // Device list changed, update our notification
                 connectedDeviceNames = connectIQService.getConnectedRealDevices()
                     .map { it.friendlyName ?: "Unknown" }
                 updateNotification()
             }
             
-            // Register listeners (this also broadcasts device list)
             connectIQService.registerListenersForAllDevices()
             
-            // Initialize our notification device list
             connectedDeviceNames = connectIQService.getConnectedRealDevices()
                 .map { it.friendlyName ?: "Unknown" }
             updateNotification()

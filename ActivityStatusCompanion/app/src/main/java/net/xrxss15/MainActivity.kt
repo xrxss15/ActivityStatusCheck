@@ -94,20 +94,13 @@ class MainActivity : Activity() {
             handler.post {
                 appendLog("[${ts()}] SDK initialized successfully")
                 
-                handler.postDelayed({
-                    val devices = connectIQService.getConnectedRealDevices()
-                    appendLog("[${ts()}] Found ${devices.size} connected device(s)")
-                    devices.forEach { 
-                        appendLog("[${ts()}]   - ${it.friendlyName}")
-                    }
-                    
-                    if (!isBatteryOptimizationDisabled()) {
-                        appendLog("Battery optimization is enabled")
-                        appendLog("Press 'Battery Settings' to allow background running")
-                    }
-                    
-                    startWorker()
-                }, 1000)
+                if (!isBatteryOptimizationDisabled()) {
+                    appendLog("Battery optimization is enabled")
+                    appendLog("Press 'Battery Settings' to allow background running")
+                }
+                
+                // Start worker immediately - it will check devices
+                startWorker()
             }
         }
     }

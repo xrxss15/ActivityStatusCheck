@@ -58,8 +58,9 @@ class ConnectIQQueryWorker(
                 return Result.failure()
             }
             
-            Log.i(TAG, "SDK initialized, waiting 15s for device discovery")
-            delay(15000)
+            Log.i(TAG, "SDK initialized, checking devices")
+            
+            // NO MORE 15 SECOND DELAY - devices are already discovered
             
             connectIQService.setMessageCallback { payload, deviceName, timestamp ->
                 lastMessage = parseMessage(payload, deviceName)
@@ -73,6 +74,13 @@ class ConnectIQQueryWorker(
             
             connectIQService.registerListenersForAllDevices()
             checkDevices()
+            
+            // Log connected devices immediately
+            val devices = connectIQService.getConnectedRealDevices()
+            Log.i(TAG, "Found ${devices.size} connected device(s)")
+            devices.forEach {
+                Log.i(TAG, "  - ${it.friendlyName}")
+            }
             
             Log.i(TAG, "Listening for events")
             
@@ -103,6 +111,8 @@ class ConnectIQQueryWorker(
         if (currentIds != lastDeviceIds) {
             lastDeviceIds = currentIds
             connectedDeviceNames = currentDevices.map { it.friendlyName ?: "Unknown" }
+            
+            Log.i(TAG, "Device list changed: ${connectedDeviceNames.size} device(s)")
             
             connectIQService.registerListenersForAllDevices()
             updateNotification()

@@ -66,7 +66,8 @@ class ConnectIQQueryWorker(
             }
             
             connectIQService.setDeviceChangeCallback {
-                connectedDeviceNames = connectIQService.getConnectedRealDevices()
+                // Pass context for SDK recovery if needed
+                connectedDeviceNames = connectIQService.getConnectedRealDevices(applicationContext)
                     .map { it.friendlyName ?: "Unknown" }
                 
                 val deviceNames = connectedDeviceNames.joinToString("/")
@@ -81,7 +82,7 @@ class ConnectIQQueryWorker(
             
             connectIQService.registerListenersForAllDevices()
             
-            connectedDeviceNames = connectIQService.getConnectedRealDevices()
+            connectedDeviceNames = connectIQService.getConnectedRealDevices(applicationContext)
                 .map { it.friendlyName ?: "Unknown" }
             
             updateNotification()

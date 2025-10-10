@@ -55,6 +55,7 @@ class ConnectIQService private constructor() {
     private var messageCallback: ((String, String, Long) -> Unit)? = null
     private var deviceChangeCallback: (() -> Unit)? = null
     private var appContext: Context? = null
+    private var isReinitializing = false
 
     private fun log(msg: String) = android.util.Log.i(TAG, msg)
     private fun logError(msg: String) = android.util.Log.e(TAG, msg)
@@ -93,6 +94,38 @@ class ConnectIQService private constructor() {
         })
     }
 
+    private fun testAndRecoverSdk(context: Context): Boolean {
+        if (isReinitializing) return false
+        
+        val ciq = connectIQ ?: return false
+        
+        try {
+            // Test if SDK is actually functional
+            val test = ciq.connectedDevices
+            return true
+        } catch (e: Exception) {
+            if (e.message?.contains("SDK not initialized") == true) {
+                log("SDK service binding lost, reinitializing...")
+                isReinitializing = true
+                
+                // Clear the broken instance
+                connectIQ = null
+                
+                // Reinitialize
+                initializeSdkIfNeeded(context) {
+                    isReinitializing = false
+                    log("SDK reinitialized successfully after service binding loss")
+                    
+                    // Re-register device listeners
+                    refreshAndRegisterDevices()
+                }
+                
+                return false
+            }
+            return false
+        }
+    }
+
     fun hasRequiredPermissions(context: Context): Boolean {
         val needs = mutableListOf(android.Manifest.permission.ACCESS_FINE_LOCATION)
         if (Build.VERSION.SDK_INT >= 31) {
@@ -109,13 +142,19 @@ class ConnectIQService private constructor() {
                 !d.friendlyName.orEmpty().contains("simulator", true)
     }
 
-    fun getConnectedRealDevices(): List<IQDevice> {
+    fun getConnectedRealDevices(context: Context? = null): List<IQDevice> {
         val ciq = connectIQ ?: return emptyList()
         return try {
             val connected = ciq.connectedDevices ?: emptyList()
             connected.filter { isRealDevice(it) }
         } catch (e: Exception) {
             logError("Error getting devices: ${e.message}")
+            
+            // Try to recover if context provided
+            if (context != null && e.message?.contains("SDK not initialized") == true) {
+                testAndRecoverSdk(context)
+            }
+            
             emptyList()
         }
     }

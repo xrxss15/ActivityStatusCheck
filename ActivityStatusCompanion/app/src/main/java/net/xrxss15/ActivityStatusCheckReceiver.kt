@@ -137,7 +137,7 @@ import androidx.work.WorkInfo
  *
  * - All broadcasts use FLAG_INCLUDE_STOPPED_PACKAGES for Tasker compatibility
  * - ACTION_TERMINATE kills the process with Process.killProcess()
- * - ACTION_CLOSE_GUI uses moveTaskToBack() to hide without stopping
+ * - ACTION_CLOSE_GUI sends broadcast to MainActivity which calls finish()
  * - Worker cancellation is asynchronous, receiver waits up to 2 seconds
  * - ConnectIQ SDK is properly shutdown before process termination
  *
@@ -172,9 +172,7 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
         when (intent.action) {
             ACTION_TERMINATE -> {
                 Log.i(TAG, "TERMINATE received - stopping worker and killing process")
-                // Cancel worker
                 WorkManager.getInstance(context).cancelUniqueWork("garmin_listener")
-                // Wait for worker to stop
                 val handler = Handler(Looper.getMainLooper())
                 var checkCount = 0
                 val checkRunnable = object : Runnable {
@@ -182,16 +180,13 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
                         checkCount++
                         val running = isListenerRunning(context)
                         if (!running || checkCount >= 20) {
-                            // Reset SDK
                             ConnectIQService.resetInstance()
-                            // Send terminated broadcast
                             val terminatedIntent = Intent(ACTION_EVENT).apply {
                                 addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
                                 putExtra("type", "Terminated")
                                 putExtra("reason", "Tasker terminate")
                             }
                             context.sendBroadcast(terminatedIntent)
-                            // Kill process completely
                             android.os.Process.killProcess(android.os.Process.myPid())
                         } else {
                             handler.postDelayed(this, 100)
@@ -208,13 +203,13 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
                 context.startActivity(openIntent)
             }
             ACTION_CLOSE_GUI -> {
-                Log.i(TAG, "CLOSE_GUI received - closing GUI only")
-                // Move app to background without stopping worker
-                val moveBackIntent = Intent(Intent.ACTION_MAIN).apply {
-                    addCategory(Intent.CATEGORY_HOME)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                Log.i(TAG, "CLOSE_GUI received - finishing MainActivity")
+                // Send broadcast to MainActivity to finish itself
+                val closeIntent = Intent(ACTION_EVENT).apply {
+                    addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
+                    putExtra("type", "CloseGUI")
                 }
-                context.startActivity(moveBackIntent)
+                context.sendBroadcast(closeIntent)
             }
         }
     }

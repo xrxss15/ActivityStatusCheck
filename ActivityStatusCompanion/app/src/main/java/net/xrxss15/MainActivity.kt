@@ -26,7 +26,6 @@ import androidx.work.WorkManager
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.system.exitProcess
 
 class MainActivity : Activity() {
 
@@ -51,7 +50,6 @@ class MainActivity : Activity() {
         private const val STATUS_UPDATE_DELAY_MS = 500L
         private const val STATUS_UPDATE_INTERVAL_MS = 1_000L
 
-        // Thread-safe date formatters
         @JvmStatic
         private fun ts(): String {
             return SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
@@ -190,7 +188,7 @@ class MainActivity : Activity() {
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
                         appendLog("[${ts()}] Hiding GUI (worker keeps running)")
-                        moveTaskToBack(true)
+                        finish()
                     }
                 }
                 exitBtn = Button(this@MainActivity).apply {
@@ -244,25 +242,20 @@ class MainActivity : Activity() {
 
     private fun exitAppCompletely() {
         appendLog("[${ts()}] Stopping listener and terminating app...")
-        // Cancel worker
         WorkManager.getInstance(this).cancelUniqueWork("garmin_listener")
-        // Wait for worker to stop, then kill everything
         var checkCount = 0
         val checkRunnable = object : Runnable {
             override fun run() {
                 checkCount++
                 val running = isListenerRunning()
                 if (!running || checkCount >= 20) {
-                    // Worker stopped or timeout
                     ConnectIQService.resetInstance()
-                    // Send termination broadcast
                     val intent = Intent("net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT").apply {
                         addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
                         putExtra("type", "Terminated")
                         putExtra("reason", "User exit")
                     }
                     sendBroadcast(intent)
-                    // Kill the process completely
                     finishAffinity()
                     android.os.Process.killProcess(android.os.Process.myPid())
                 } else {
@@ -429,7 +422,6 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
-        // Clean up handler callbacks first
         batteryUpdateRunnable?.let { handler.removeCallbacks(it) }
         batteryUpdateRunnable = null
         handler.removeCallbacksAndMessages(null)

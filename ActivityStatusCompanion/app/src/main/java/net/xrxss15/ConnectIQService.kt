@@ -34,6 +34,9 @@ class ConnectIQService private constructor() {
         fun resetInstance() {
             synchronized(this) {
                 instance?.let {
+                    it.sdkReady = false
+                    it.connectIQ = null
+                    
                     try {
                         it.appContext?.let { ctx ->
                             it.connectIQ?.shutdown(ctx)
@@ -41,11 +44,13 @@ class ConnectIQService private constructor() {
                     } catch (e: Exception) {
                         android.util.Log.e(TAG, "Error during reset: ${e.message}")
                     }
+                    
                     it.appListeners.clear()
                     it.knownDevices.clear()
                     it.messageCallback = null
                     it.deviceChangeCallback = null
-                    it.sdkReady = false
+                    it.isReinitializing = false
+                    it.appContext = null
                 }
                 instance = null
             }
@@ -231,8 +236,6 @@ class ConnectIQService private constructor() {
         devices.forEach { device ->
             registerListenerForDevice(device)
         }
-        
-        sendDeviceListBroadcast(devices)
     }
 
     private fun registerListenerForDevice(device: IQDevice) {

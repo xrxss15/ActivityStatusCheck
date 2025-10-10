@@ -280,8 +280,27 @@ class MainActivity : Activity() {
 
     private fun exitApp() {
         WorkManager.getInstance(this).cancelUniqueWork("garmin_listener")
-        ConnectIQService.resetInstance()
-        finish()
+        
+        var checkCount = 0
+        val checkRunnable = object : Runnable {
+            override fun run() {
+                checkCount++
+                val running = isListenerRunning()
+                
+                if (!running) {
+                    appendLog("[${ts()}] Listener stopped")
+                    ConnectIQService.resetInstance()
+                    finishAffinity()
+                } else if (checkCount >= 20) {
+                    appendLog("[${ts()}] Force closing...")
+                    ConnectIQService.resetInstance()
+                    finishAffinity()
+                } else {
+                    handler.postDelayed(this, 100)
+                }
+            }
+        }
+        handler.postDelayed(checkRunnable, 100)
     }
 
     private fun isListenerRunning(): Boolean {

@@ -12,10 +12,6 @@ import com.garmin.android.connectiq.ConnectIQ.IQSdkErrorStatus
 import com.garmin.android.connectiq.IQApp
 import com.garmin.android.connectiq.IQDevice
 
-/**
- * Singleton service managing ConnectIQ SDK interactions.
- * Handles device discovery, listener registration, and message broadcasting.
- */
 class ConnectIQService private constructor() {
 
     companion object {
@@ -33,9 +29,6 @@ class ConnectIQService private constructor() {
             }
         }
         
-        /**
-         * Resets the singleton instance and shuts down SDK.
-         */
         fun resetInstance() {
             synchronized(this) {
                 instance?.let {
@@ -69,12 +62,6 @@ class ConnectIQService private constructor() {
     private fun log(msg: String) = android.util.Log.i(TAG, msg)
     private fun logError(msg: String) = android.util.Log.e(TAG, msg)
 
-    /**
-     * Initializes the ConnectIQ SDK if not already initialized.
-     * 
-     * @param context Application context
-     * @param onReady Callback invoked when SDK is ready
-     */
     fun initializeSdkIfNeeded(context: Context, onReady: (() -> Unit)? = null) {
         appContext = context.applicationContext
         
@@ -109,12 +96,6 @@ class ConnectIQService private constructor() {
         })
     }
 
-    /**
-     * Tests if SDK is functional and recovers if service binding is lost.
-     * 
-     * @param context Application context for reinitialization
-     * @return true if SDK is functional, false if recovery is in progress
-     */
     private fun testAndRecoverSdk(context: Context): Boolean {
         if (isReinitializing) return false
         
@@ -149,12 +130,6 @@ class ConnectIQService private constructor() {
         }
     }
 
-    /**
-     * Checks if all required permissions are granted.
-     * 
-     * @param context Context to check permissions
-     * @return true if all required permissions are granted
-     */
     fun hasRequiredPermissions(context: Context): Boolean {
         val needs = mutableListOf(android.Manifest.permission.ACCESS_FINE_LOCATION)
         if (Build.VERSION.SDK_INT >= 31) {
@@ -164,27 +139,13 @@ class ConnectIQService private constructor() {
         return needs.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
     }
 
-    /**
-     * Checks if SDK is initialized.
-     * 
-     * @return true if SDK is initialized
-     */
     fun isInitialized(): Boolean = connectIQ != null
 
-    /**
-     * Determines if a device is a real device (not simulator).
-     */
     private fun isRealDevice(device: IQDevice): Boolean {
         return device.deviceIdentifier != KNOWN_SIMULATOR_ID &&
                 !device.friendlyName.orEmpty().contains("simulator", true)
     }
 
-    /**
-     * Gets list of connected real devices (excludes simulators).
-     * 
-     * @param context Optional context for SDK recovery
-     * @return List of connected real devices
-     */
     fun getConnectedRealDevices(context: Context? = null): List<IQDevice> {
         val sdk = connectIQ ?: return emptyList()
         return try {
@@ -201,11 +162,9 @@ class ConnectIQService private constructor() {
         }
     }
 
-    /**
-     * Refreshes device list and registers for device status change events.
-     */
     fun refreshAndRegisterDevices() {
         val sdk = connectIQ ?: return
+        val ctx = appContext
         
         val all = try {
             sdk.knownDevices
@@ -221,7 +180,14 @@ class ConnectIQService private constructor() {
                     log("Device ${dev.friendlyName} status changed: $status")
                     
                     when (status) {
-                        IQDevice.IQDeviceStatus.CONNECTED,
+                        IQDevice.IQDeviceStatus.CONNECTED -> {
+                            // Test SDK health after CONNECTED event
+                            if (ctx != null && !testAndRecoverSdk(ctx)) {
+                                log("SDK recovery initiated after CONNECTED event")
+                            } else {
+                                deviceChangeCallback?.invoke()
+                            }
+                        }
                         IQDevice.IQDeviceStatus.NOT_CONNECTED,
                         IQDevice.IQDeviceStatus.NOT_PAIRED -> {
                             deviceChangeCallback?.invoke()
@@ -235,9 +201,6 @@ class ConnectIQService private constructor() {
         }
     }
 
-    /**
-     * Registers message listeners for all connected devices.
-     */
     fun registerListenersForAllDevices() {
         val devices = getConnectedRealDevices()
         log("Registering ${devices.size} device(s)")
@@ -252,9 +215,6 @@ class ConnectIQService private constructor() {
         sendDeviceListBroadcast(devices)
     }
 
-    /**
-     * Registers message listener for a specific device.
-     */
     private fun registerListenerForDevice(device: IQDevice) {
         val sdk = connectIQ ?: return
         val app = IQApp(APP_UUID)
@@ -290,9 +250,6 @@ class ConnectIQService private constructor() {
         }
     }
 
-    /**
-     * Sends activity message broadcast.
-     */
     private fun sendMessageBroadcast(payload: String, deviceName: String) {
         val context = appContext ?: return
         
@@ -316,7 +273,7 @@ class ConnectIQService private constructor() {
             val activity = parts[2]
             val duration = parts[3].toInt()
             
-            val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
+            val intent = Intent("net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT").apply {
                 putExtra("type", eventType)
                 putExtra("device", deviceName)
                 putExtra("time", time)
@@ -332,16 +289,13 @@ class ConnectIQService private constructor() {
         }
     }
 
-    /**
-     * Sends device list broadcast.
-     */
     private fun sendDeviceListBroadcast(devices: List<IQDevice>) {
         val context = appContext ?: return
         
         val deviceNames = devices.map { it.friendlyName ?: "Unknown" }.joinToString("/")
         
         try {
-            val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
+            val intent = Intent("net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT").apply {
                 putExtra("type", "DeviceList")
                 putExtra("devices", deviceNames)
             }
@@ -353,20 +307,10 @@ class ConnectIQService private constructor() {
         }
     }
 
-    /**
-     * Sets callback for activity messages.
-     * 
-     * @param callback Callback function (payload, deviceName, timestamp)
-     */
     fun setMessageCallback(callback: ((String, String, Long) -> Unit)?) {
         messageCallback = callback
     }
 
-    /**
-     * Sets callback for device status changes.
-     * 
-     * @param callback Callback function invoked on device status change
-     */
     fun setDeviceChangeCallback(callback: (() -> Unit)?) {
         deviceChangeCallback = callback
     }

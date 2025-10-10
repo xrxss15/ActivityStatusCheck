@@ -34,7 +34,7 @@ import androidx.work.WorkManager
  *    Target: Broadcast Receiver
  *    Package: net.xrxss15
  *    Class: net.xrxss15.ActivityStatusCheckReceiver
- *    Effect: Stops worker, closes GUI, kills app process.
+ *    Effect: Stops worker, closes GUI, terminates app gracefully.
  * 
  * =============================================================================
  * TASKER INTEGRATION - OUTGOING BROADCASTS (App sends these to Tasker)
@@ -190,8 +190,8 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
          * Shutdown sequence:
          * 1. Cancel background worker
          * 2. Shutdown ConnectIQ SDK and reset singleton
-         * 3. Close MainActivity UI
-         * 4. Kill app process
+         * 3. Close MainActivity UI with finishAndRemoveTask()
+         * 4. Let Android manage process lifecycle naturally (no killProcess)
          * 
          * @param context Application context
          */
@@ -203,10 +203,9 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
             
             val closeIntent = Intent(MainActivity.ACTION_CLOSE_GUI).apply {
                 setPackage(context.packageName)
+                putExtra("finish_and_remove_task", true)
             }
             context.sendBroadcast(closeIntent)
-            
-            android.os.Process.killProcess(android.os.Process.myPid())
         }
     }
 

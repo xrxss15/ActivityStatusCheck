@@ -73,7 +73,12 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
 
         if (intent.action == ACTION_CLOSE_GUI) {
-            finish()
+            val removeTask = intent.getBooleanExtra("finish_and_remove_task", false)
+            if (removeTask) {
+                finishAndRemoveTask()
+            } else {
+                finish()
+            }
             return
         }
 
@@ -105,39 +110,29 @@ class MainActivity : Activity() {
         setIntent(intent)
         
         if (intent?.action == ACTION_CLOSE_GUI) {
-            finish()
+            val removeTask = intent.getBooleanExtra("finish_and_remove_task", false)
+            if (removeTask) {
+                finishAndRemoveTask()
+            } else {
+                finish()
+            }
         }
     }
 
     private fun initializeAndStart() {
         if (isListenerRunning()) {
             appendLog("[${ts()}] Worker already running")
-            
-            if (!connectIQService.isInitialized()) {
-                appendLog("[${ts()}] Initializing ConnectIQ SDK...")
-                connectIQService.initializeSdkIfNeeded(this) {
-                    handler.post {
-                        appendLog("[${ts()}] SDK initialized successfully")
-                    }
-                }
-            }
             return
         }
         
-        appendLog("[${ts()}] Initializing ConnectIQ SDK...")
+        appendLog("[${ts()}] Starting background worker...")
         
-        connectIQService.initializeSdkIfNeeded(this) {
-            handler.post {
-                appendLog("[${ts()}] SDK initialized successfully")
-                
-                if (!isBatteryOptimizationDisabled()) {
-                    appendLog("Battery optimization is enabled")
-                    appendLog("Press 'Battery Settings' to allow background running")
-                }
-                
-                startWorker()
-            }
+        if (!isBatteryOptimizationDisabled()) {
+            appendLog("Battery optimization is enabled")
+            appendLog("Press 'Battery Settings' to allow background running")
         }
+        
+        startWorker()
     }
 
     private fun startWorker() {
@@ -358,7 +353,12 @@ class MainActivity : Activity() {
                         handleGarminEvent(type, intent)
                     }
                     ACTION_CLOSE_GUI -> {
-                        finish()
+                        val removeTask = intent.getBooleanExtra("finish_and_remove_task", false)
+                        if (removeTask) {
+                            finishAndRemoveTask()
+                        } else {
+                            finish()
+                        }
                     }
                 }
             }

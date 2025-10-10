@@ -2,40 +2,34 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="net.xrxss15"
     android:versionCode="1"
-    android:versionName="1.0" > <!-- ============================================ -->
-    <!-- MINIMUM SDK VERSION -->
-    <!-- ============================================ -->
+    android:versionName="1.0" >
+
     <uses-sdk
         android:minSdkVersion="24"
         android:targetSdkVersion="34" />
 
-    <!-- ============================================ -->
-    <!-- BLUETOOTH PERMISSIONS (Android 12+) -->
-    <!-- ============================================ -->
-    <!-- BLUETOOTH_SCAN: Required to discover Garmin devices -->
-    <!-- neverForLocation: We don't derive physical location from BLE scans -->
-    <uses-permission
-        android:name="android.permission.BLUETOOTH_SCAN"
-        android:usesPermissionFlags="neverForLocation" />
+    <!-- Location permission required for BLE scanning (Android requirement) -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
-    <!-- BLUETOOTH_CONNECT: Required to communicate with paired Garmin devices -->
+    <!-- Bluetooth permissions (Android 11 and below) -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+
+    <!-- Bluetooth permissions (Android 12+) -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
-    <!-- ============================================ -->
-    <!-- FOREGROUND SERVICE PERMISSIONS -->
-    <!-- ============================================ -->
+    <!-- Notification permission (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Foreground service permissions -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
-    <!-- ============================================ -->
-    <!-- NOTIFICATION PERMISSIONS (Android 13+) -->
-    <!-- ============================================ -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-
-    <!-- ============================================ -->
-    <!-- BACKGROUND OPERATION PERMISSIONS -->
-    <!-- ============================================ -->
+    <!-- Wake lock for critical operations -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Request ignore battery optimizations -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -55,13 +49,12 @@
         android:appComponentFactory="androidx.core.app.CoreComponentFactory"
         android:debuggable="true"
         android:extractNativeLibs="false"
+        android:icon="@android:drawable/ic_menu_compass"
         android:label="Garmin Activity Listener"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light" >
 
-        <!-- ============================================ -->
-        <!-- MAIN ACTIVITY -->
-        <!-- ============================================ -->
+        <!-- Main Activity -->
         <activity
             android:name="net.xrxss15.MainActivity"
             android:exported="true"
@@ -73,9 +66,7 @@
             </intent-filter>
         </activity>
 
-        <!-- ============================================ -->
-        <!-- SDK RECOVERY ACTIVITY -->
-        <!-- ============================================ -->
+        <!-- Invisible activity for SDK recovery -->
         <activity
             android:name="net.xrxss15.SdkInitActivity"
             android:excludeFromRecents="true"
@@ -83,9 +74,7 @@
             android:noHistory="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
-        <!-- ============================================ -->
-        <!-- BROADCAST RECEIVER FOR REMOTE CONTROL -->
-        <!-- ============================================ -->
+        <!-- Broadcast Receiver for Tasker integration -->
         <receiver
             android:name="net.xrxss15.ActivityStatusCheckReceiver"
             android:exported="true" >
@@ -96,9 +85,7 @@
             </intent-filter>
         </receiver>
 
-        <!-- ============================================ -->
-        <!-- WORKMANAGER FOREGROUND SERVICE -->
-        <!-- ============================================ -->
+        <!-- WorkManager's SystemForegroundService -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:directBootAware="false"
@@ -106,9 +93,6 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <!-- ============================================ -->
-        <!-- WORKMANAGER INITIALIZATION PROVIDER -->
-        <!-- ============================================ -->
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="net.xrxss15.androidx-startup"

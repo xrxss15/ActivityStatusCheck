@@ -109,7 +109,7 @@ MERGED from [androidx.versionedparcelable:versionedparcelable:1.1.1] /home/vscod
 activity#net.xrxss15.MainActivity
 ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:23:9-31:20
 	android:launchMode
-		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:26:13-44
+		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:26:13-43
 	android:exported
 		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:25:13-36
 	android:name

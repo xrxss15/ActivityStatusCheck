@@ -83,8 +83,8 @@
 43-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:24:13-41
 44            android:exported="true"
 44-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:25:13-36
-45            android:launchMode="singleTask" >
-45-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:26:13-44
+45            android:launchMode="singleTop" >
+45-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:26:13-43
 46            <intent-filter>
 46-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:27:13-30:29
 47                <action android:name="android.intent.action.MAIN" />

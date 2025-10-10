@@ -79,8 +79,7 @@ class ConnectIQQueryWorker(
                     
                     val deviceNames = connectedDeviceNames.joinToString("/")
                     val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
-                        setPackage(applicationContext.packageName)
-                        addCategory(Intent.CATEGORY_DEFAULT)
+                        addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
                         putExtra("type", "DeviceList")
                         putExtra("devices", deviceNames)
                     }
@@ -228,8 +227,7 @@ class ConnectIQQueryWorker(
         try {
             val devicesString = deviceNames.joinToString("/")
             val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
-                setPackage(applicationContext.packageName)
-                addCategory(Intent.CATEGORY_DEFAULT)
+                addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
                 putExtra("type", "Created")
                 putExtra("timestamp", System.currentTimeMillis())
                 putExtra("devices", devicesString)
@@ -246,8 +244,7 @@ class ConnectIQQueryWorker(
     private fun sendTerminatedBroadcast(reason: String) {
         try {
             val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
-                setPackage(applicationContext.packageName)
-                addCategory(Intent.CATEGORY_DEFAULT)
+                addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
                 putExtra("type", "Terminated")
                 putExtra("reason", reason)
             }

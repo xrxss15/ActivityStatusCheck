@@ -294,8 +294,7 @@ class ConnectIQService private constructor() {
             val duration = parts[3].toInt()
             
             val intent = Intent("net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT").apply {
-                setPackage(context.packageName)
-                addCategory(Intent.CATEGORY_DEFAULT)
+                addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
                 putExtra("type", eventType)
                 putExtra("device", deviceName)
                 putExtra("time", time)
@@ -318,8 +317,7 @@ class ConnectIQService private constructor() {
         
         try {
             val intent = Intent("net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT").apply {
-                setPackage(context.packageName)
-                addCategory(Intent.CATEGORY_DEFAULT)
+                addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
                 putExtra("type", "DeviceList")
                 putExtra("devices", deviceNames)
             }

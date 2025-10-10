@@ -119,7 +119,6 @@ class MainActivity : Activity() {
                 }
             }
             Intent.ACTION_MAIN -> {
-                // App restarted from launcher after Exit
                 appendLog("[${ts()}] App reopened")
                 updateServiceStatus()
             }
@@ -127,7 +126,6 @@ class MainActivity : Activity() {
     }
 
     private fun initializeAndStart() {
-        // Always initialize SDK in MainActivity
         appendLog("[${ts()}] Initializing ConnectIQ SDK...")
         
         connectIQService.initializeSdkIfNeeded(this) {
@@ -139,7 +137,6 @@ class MainActivity : Activity() {
                     appendLog("Press 'Battery Settings' to allow background running")
                 }
                 
-                // Start worker after SDK is ready
                 if (!isListenerRunning()) {
                     startWorker()
                 } else {
@@ -381,7 +378,6 @@ class MainActivity : Activity() {
         val filter = IntentFilter().apply {
             addAction(ActivityStatusCheckReceiver.ACTION_EVENT)
             addAction(ACTION_CLOSE_GUI)
-            addCategory(Intent.CATEGORY_DEFAULT)
         }
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

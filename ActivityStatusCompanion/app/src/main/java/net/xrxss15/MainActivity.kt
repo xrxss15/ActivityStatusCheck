@@ -187,7 +187,7 @@ class MainActivity : Activity() {
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
                         appendLog("[${ts()}] Hiding GUI (worker keeps running)")
-                        finish()
+                        finishAndRemoveTask()
                     }
                 }
                 exitBtn = Button(this@MainActivity).apply {
@@ -372,7 +372,7 @@ class MainActivity : Activity() {
             "CloseGUI" -> {
                 // Handle close GUI request from receiver
                 appendLog("[${ts()}] Closing GUI via Tasker")
-                finish()
+                finishAndRemoveTask()
             }
         }
     }

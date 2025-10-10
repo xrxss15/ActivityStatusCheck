@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     package="net.xrxss15">
 
     <!-- Bluetooth and Location permissions -->
@@ -49,6 +50,14 @@
                 <action android:name="net.xrxss15.TERMINATE" />
             </intent-filter>
         </receiver>
+        
+        <!-- WorkManager's SystemForegroundService (REQUIRED for Android 12+) -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:directBootAware="false"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            tools:targetApi="s" />
 
     </application>
 

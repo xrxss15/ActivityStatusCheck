@@ -59,6 +59,7 @@ class ConnectIQQueryWorker(
         return try {
             notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             
+            // Start foreground IMMEDIATELY to avoid Android 12+ crash
             setForeground(createForegroundInfo())
             Log.i(TAG, "Foreground service started")
             
@@ -79,6 +80,7 @@ class ConnectIQQueryWorker(
             
             Log.i(TAG, "SDK initialized")
             
+            // Set up callbacks
             connectIQService.setMessageCallback { payload, deviceName, timestamp ->
                 lastMessage = parseMessage(payload, deviceName)
                 lastMessageTime = timestamp
@@ -117,6 +119,7 @@ class ConnectIQQueryWorker(
             
             releaseWakeLock()
             
+            // Suspend indefinitely until cancelled
             suspendCancellableCoroutine<Nothing> { continuation ->
                 continuation.invokeOnCancellation {
                     Log.i(TAG, "Worker cancelled")
@@ -315,7 +318,7 @@ class ConnectIQQueryWorker(
             }
             
             applicationContext.sendBroadcast(intent)
-            Log.i(TAG, "Created broadcast sent with ${deviceNames.size} device(s)")
+            Log.i(TAG, "Created broadcast sent with ${deviceNames.size} device(s): $devicesString")
             
         } catch (e: Exception) {
             Log.e(TAG, "Created broadcast failed", e)

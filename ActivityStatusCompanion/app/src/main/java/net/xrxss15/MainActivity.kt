@@ -27,6 +27,7 @@ import androidx.work.WorkManager
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.system.exitProcess
 
 class MainActivity : Activity() {
 
@@ -46,9 +47,6 @@ class MainActivity : Activity() {
     private var batteryUpdateRunnable: Runnable? = null
 
     companion object {
-        const val ACTION_CLOSE_GUI = "net.xrxss15.CLOSE_GUI"
-        const val ACTION_OPEN_GUI = "net.xrxss15.OPEN_GUI"
-        
         private const val TAG = "MainActivity"
         private const val PERMISSION_REQUEST_CODE = 100
         private const val BATTERY_UPDATE_INTERVAL_MS = 30_000L
@@ -226,8 +224,7 @@ class MainActivity : Activity() {
                     text = "Exit"
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
-                        appendLog("[${ts()}] Stopping listener and exiting...")
-                        exitApp()
+                        exitAppCompletely()
                     }
                 }
                 
@@ -278,23 +275,34 @@ class MainActivity : Activity() {
         setContentView(root)
     }
 
-    private fun exitApp() {
+    private fun exitAppCompletely() {
+        appendLog("[${ts()}] Stopping listener and terminating app...")
+        
+        // Cancel worker
         WorkManager.getInstance(this).cancelUniqueWork("garmin_listener")
         
+        // Wait for worker to stop, then kill everything
         var checkCount = 0
         val checkRunnable = object : Runnable {
             override fun run() {
                 checkCount++
                 val running = isListenerRunning()
                 
-                if (!running) {
-                    appendLog("[${ts()}] Listener stopped")
+                if (!running || checkCount >= 20) {
+                    // Worker stopped or timeout
                     ConnectIQService.resetInstance()
+                    
+                    // Send termination broadcast
+                    val intent = Intent("net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT").apply {
+                        addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
+                        putExtra("type", "Terminated")
+                        putExtra("reason", "User exit")
+                    }
+                    sendBroadcast(intent)
+                    
+                    // Kill the process completely
                     finishAffinity()
-                } else if (checkCount >= 20) {
-                    appendLog("[${ts()}] Force closing...")
-                    ConnectIQService.resetInstance()
-                    finishAffinity()
+                    android.os.Process.killProcess(android.os.Process.myPid())
                 } else {
                     handler.postDelayed(this, 100)
                 }

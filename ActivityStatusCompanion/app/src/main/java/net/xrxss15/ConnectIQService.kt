@@ -125,7 +125,6 @@ class ConnectIQService private constructor() {
                 connectIQ = null
                 sdkReady = false
                 
-                // Start invisible SdkInitActivity to reinitialize SDK
                 try {
                     val intent = Intent(context, SdkInitActivity::class.java).apply {
                         action = SdkInitActivity.ACTION_INIT_SDK
@@ -133,7 +132,6 @@ class ConnectIQService private constructor() {
                     }
                     context.startActivity(intent)
                     
-                    // Reset flag after delay to allow retry if needed
                     mainHandler.postDelayed({
                         synchronized(this) {
                             isReinitializing = false
@@ -296,6 +294,8 @@ class ConnectIQService private constructor() {
             val duration = parts[3].toInt()
             
             val intent = Intent("net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT").apply {
+                setPackage(context.packageName)
+                addCategory(Intent.CATEGORY_DEFAULT)
                 putExtra("type", eventType)
                 putExtra("device", deviceName)
                 putExtra("time", time)
@@ -318,6 +318,8 @@ class ConnectIQService private constructor() {
         
         try {
             val intent = Intent("net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT").apply {
+                setPackage(context.packageName)
+                addCategory(Intent.CATEGORY_DEFAULT)
                 putExtra("type", "DeviceList")
                 putExtra("devices", deviceNames)
             }

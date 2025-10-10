@@ -49,7 +49,6 @@ class ConnectIQQueryWorker(
             setForeground(createForegroundInfo())
             Log.i(TAG, "Foreground service started")
             
-            // Wait for SDK to be initialized by MainActivity
             Log.i(TAG, "Waiting for SDK initialization...")
             var attempts = 0
             val maxAttempts = (SDK_INIT_WAIT_MS / SDK_CHECK_INTERVAL_MS).toInt()
@@ -80,6 +79,8 @@ class ConnectIQQueryWorker(
                     
                     val deviceNames = connectedDeviceNames.joinToString("/")
                     val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
+                        setPackage(applicationContext.packageName)
+                        addCategory(Intent.CATEGORY_DEFAULT)
                         putExtra("type", "DeviceList")
                         putExtra("devices", deviceNames)
                     }
@@ -227,6 +228,8 @@ class ConnectIQQueryWorker(
         try {
             val devicesString = deviceNames.joinToString("/")
             val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
+                setPackage(applicationContext.packageName)
+                addCategory(Intent.CATEGORY_DEFAULT)
                 putExtra("type", "Created")
                 putExtra("timestamp", System.currentTimeMillis())
                 putExtra("devices", devicesString)
@@ -243,6 +246,8 @@ class ConnectIQQueryWorker(
     private fun sendTerminatedBroadcast(reason: String) {
         try {
             val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
+                setPackage(applicationContext.packageName)
+                addCategory(Intent.CATEGORY_DEFAULT)
                 putExtra("type", "Terminated")
                 putExtra("reason", reason)
             }

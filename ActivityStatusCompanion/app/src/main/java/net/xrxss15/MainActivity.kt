@@ -109,12 +109,19 @@ class MainActivity : Activity() {
         super.onNewIntent(intent)
         setIntent(intent)
         
-        if (intent?.action == ACTION_CLOSE_GUI) {
-            val removeTask = intent.getBooleanExtra("finish_and_remove_task", false)
-            if (removeTask) {
-                finishAndRemoveTask()
-            } else {
-                finish()
+        when (intent?.action) {
+            ACTION_CLOSE_GUI -> {
+                val removeTask = intent.getBooleanExtra("finish_and_remove_task", false)
+                if (removeTask) {
+                    finishAndRemoveTask()
+                } else {
+                    finish()
+                }
+            }
+            Intent.ACTION_MAIN -> {
+                // App restarted from launcher after Exit
+                appendLog("[${ts()}] App reopened")
+                updateServiceStatus()
             }
         }
     }
@@ -374,6 +381,7 @@ class MainActivity : Activity() {
         val filter = IntentFilter().apply {
             addAction(ActivityStatusCheckReceiver.ACTION_EVENT)
             addAction(ACTION_CLOSE_GUI)
+            addCategory(Intent.CATEGORY_DEFAULT)
         }
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

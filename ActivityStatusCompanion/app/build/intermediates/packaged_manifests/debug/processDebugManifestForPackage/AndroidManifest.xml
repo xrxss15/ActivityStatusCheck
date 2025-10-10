@@ -16,7 +16,6 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -36,12 +35,14 @@
         android:appComponentFactory="androidx.core.app.CoreComponentFactory"
         android:debuggable="true"
         android:extractNativeLibs="false"
-        android:label="Garmin Listener"
+        android:icon="@mipmap/ic_launcher"
+        android:label="Garmin Activity Listener"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light" >
         <activity
             android:name="net.xrxss15.MainActivity"
-            android:exported="true" >
+            android:exported="true"
+            android:launchMode="singleTask" >
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
@@ -51,21 +52,14 @@
 
         <receiver
             android:name="net.xrxss15.ActivityStatusCheckReceiver"
-            android:enabled="true"
             android:exported="true" >
             <intent-filter>
-                <action android:name="net.xrxss15.internal.START" />
-                <action android:name="net.xrxss15.internal.STOP" />
-                <action android:name="net.xrxss15.GARMIN_ACTIVITY_LISTENER_TERMINATE" />
+                <action android:name="net.xrxss15.START_BACKGROUND" />
+                <action android:name="net.xrxss15.OPEN_GUI" />
+                <action android:name="net.xrxss15.CLOSE_GUI" />
+                <action android:name="net.xrxss15.TERMINATE" />
             </intent-filter>
         </receiver>
-
-        <service
-            android:name="androidx.work.impl.foreground.SystemForegroundService"
-            android:directBootAware="false"
-            android:enabled="@bool/enable_system_foreground_service_default"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
 
         <provider
             android:name="androidx.startup.InitializationProvider"
@@ -90,6 +84,11 @@
             android:enabled="@bool/enable_system_job_service_default"
             android:exported="true"
             android:permission="android.permission.BIND_JOB_SERVICE" />
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:directBootAware="false"
+            android:enabled="@bool/enable_system_foreground_service_default"
+            android:exported="false" />
 
         <receiver
             android:name="androidx.work.impl.utils.ForceStopRunnable$BroadcastReceiver"

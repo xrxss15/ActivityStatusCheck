@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -24,23 +25,37 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * Main activity for Garmin Activity Listener.
+ * Provides UI for monitoring Garmin watch activity events and controls background worker.
+ */
 class MainActivity : Activity() {
 
     private lateinit var logView: TextView
     private lateinit var scroll: ScrollView
     private lateinit var statusText: TextView
+    private lateinit var batteryText: TextView
     private lateinit var batteryBtn: Button
     private lateinit var copyBtn: Button
     private lateinit var clearBtn: Button
     private lateinit var exitBtn: Button
+    private lateinit var hideBtn: Button
     
     private val handler = Handler(Looper.getMainLooper())
     private var messageReceiver: BroadcastReceiver? = null
     private val connectIQService = ConnectIQService.getInstance()
+    private var batteryUpdateRunnable: Runnable? = null
 
     companion object {
         const val ACTION_TERMINATE_UI = "net.xrxss15.internal.TERMINATE_UI"
+        const val ACTION_CLOSE_GUI = "net.xrxss15.CLOSE_GUI"
+        const val ACTION_OPEN_GUI = "net.xrxss15.OPEN_GUI"
+        
         private const val TAG = "MainActivity"
+        private const val PERMISSION_REQUEST_CODE = 100
+        private const val BATTERY_UPDATE_INTERVAL_MS = 30_000L
+        private const val STATUS_UPDATE_DELAY_MS = 500L
+        private const val STATUS_UPDATE_INTERVAL_MS = 1_000L
     }
 
     private fun ts(): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
@@ -59,9 +74,15 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        if (intent.action == ACTION_TERMINATE_UI) {
-            finishAndRemoveTask()
-            return
+        when (intent.action) {
+            ACTION_TERMINATE_UI -> {
+                finishAndRemoveTask()
+                return
+            }
+            ACTION_CLOSE_GUI -> {
+                finish()
+                return
+            }
         }
 
         createUI()
@@ -76,18 +97,49 @@ class MainActivity : Activity() {
         }
 
         updateServiceStatus()
+        updateBatteryStats()
+        
+        batteryUpdateRunnable = object : Runnable {
+            override fun run() {
+                updateBatteryStats()
+                handler.postDelayed(this, BATTERY_UPDATE_INTERVAL_MS)
+            }
+        }
+        handler.postDelayed(batteryUpdateRunnable!!, BATTERY_UPDATE_INTERVAL_MS)
     }
 
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         setIntent(intent)
         
-        if (intent?.action == ACTION_TERMINATE_UI) {
-            finishAndRemoveTask()
+        when (intent?.action) {
+            ACTION_TERMINATE_UI -> {
+                finishAndRemoveTask()
+            }
+            ACTION_CLOSE_GUI -> {
+                finish()
+            }
         }
     }
 
+    /**
+     * Initializes ConnectIQ SDK and starts background worker if needed.
+     */
     private fun initializeAndStart() {
+        if (isListenerRunning()) {
+            appendLog("[${ts()}] Worker already running")
+            
+            if (!connectIQService.isInitialized()) {
+                appendLog("[${ts()}] Initializing ConnectIQ SDK...")
+                connectIQService.initializeSdkIfNeeded(this) {
+                    handler.post {
+                        appendLog("[${ts()}] SDK initialized successfully")
+                    }
+                }
+            }
+            return
+        }
+        
         appendLog("[${ts()}] Initializing ConnectIQ SDK...")
         
         connectIQService.initializeSdkIfNeeded(this) {
@@ -104,17 +156,51 @@ class MainActivity : Activity() {
         }
     }
 
+    /**
+     * Starts the background worker via broadcast intent.
+     */
     private fun startWorker() {
         appendLog("[${ts()}] Starting background worker...")
         
-        val intent = Intent(ActivityStatusCheckReceiver.ACTION_START).apply {
+        val intent = Intent(ActivityStatusCheckReceiver.ACTION_START_BACKGROUND).apply {
             setPackage(packageName)
         }
         sendBroadcast(intent)
         
         handler.postDelayed({
             updateServiceStatus()
-        }, 1000)
+        }, STATUS_UPDATE_INTERVAL_MS)
+    }
+
+    /**
+     * Updates battery statistics display.
+     */
+    private fun updateBatteryStats() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            try {
+                val batteryManager = getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+                if (batteryManager == null) {
+                    batteryText.text = "Battery stats unavailable"
+                    return
+                }
+                
+                val batteryPct = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                
+                val stats = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    "Battery: $batteryPct% | App usage: Check system battery settings"
+                } else {
+                    "Battery: $batteryPct%"
+                }
+                
+                batteryText.text = stats
+                
+            } catch (e: Exception) {
+                batteryText.text = "Battery stats unavailable"
+                Log.e(TAG, "Failed to get battery stats: ${e.message}")
+            }
+        } else {
+            batteryText.text = "Battery stats not supported"
+        }
     }
 
     private fun createUI() {
@@ -131,19 +217,35 @@ class MainActivity : Activity() {
             statusText = TextView(this@MainActivity).apply {
                 text = "Status: Initializing..."
                 textSize = 14f
-                setPadding(0, 8, 0, 8)
+                setPadding(0, 8, 0, 0)
             }
             addView(statusText)
+            
+            batteryText = TextView(this@MainActivity).apply {
+                text = "Battery: --"
+                textSize = 14f
+                setPadding(0, 4, 0, 8)
+            }
+            addView(batteryText)
 
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 8, 0, 8)
                 
                 batteryBtn = Button(this@MainActivity).apply {
-                    text = "Battery Settings"
+                    text = "Battery"
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
                         requestBatteryOptimizationExemption()
+                    }
+                }
+                
+                hideBtn = Button(this@MainActivity).apply {
+                    text = "Hide GUI"
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    setOnClickListener {
+                        appendLog("[${ts()}] Hiding GUI...")
+                        finish()
                     }
                 }
                 
@@ -157,6 +259,7 @@ class MainActivity : Activity() {
                 }
                 
                 addView(batteryBtn)
+                addView(hideBtn)
                 addView(exitBtn)
             })
 
@@ -202,6 +305,9 @@ class MainActivity : Activity() {
         setContentView(root)
     }
 
+    /**
+     * Sends broadcast to terminate the entire app.
+     */
     private fun exitApp() {
         val intent = Intent(ActivityStatusCheckReceiver.ACTION_TERMINATE).apply {
             setPackage(packageName)
@@ -210,12 +316,23 @@ class MainActivity : Activity() {
         sendBroadcast(intent)
     }
 
+    /**
+     * Checks if background worker is currently running.
+     */
     private fun isListenerRunning(): Boolean {
-        val workManager = WorkManager.getInstance(applicationContext)
-        val workInfos = workManager.getWorkInfosForUniqueWork("garmin_listener").get()
-        return workInfos.any { it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED }
+        return try {
+            val workManager = WorkManager.getInstance(applicationContext)
+            val workInfos = workManager.getWorkInfosForUniqueWork("garmin_listener").get()
+            workInfos.any { it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking worker status: ${e.message}")
+            false
+        }
     }
 
+    /**
+     * Updates the service status display.
+     */
     private fun updateServiceStatus() {
         handler.postDelayed({
             val running = isListenerRunning()
@@ -224,17 +341,23 @@ class MainActivity : Activity() {
             } else {
                 "Status: Listener Inactive"
             }
-        }, 500)
+        }, STATUS_UPDATE_DELAY_MS)
     }
 
+    /**
+     * Checks if battery optimization is disabled for this app.
+     */
     private fun isBatteryOptimizationDisabled(): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-            return pm.isIgnoringBatteryOptimizations(packageName)
+            val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            return pm?.isIgnoringBatteryOptimizations(packageName) ?: false
         }
         return true
     }
 
+    /**
+     * Opens battery optimization settings to request exemption.
+     */
     private fun requestBatteryOptimizationExemption() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (!isBatteryOptimizationDisabled()) {
@@ -252,6 +375,9 @@ class MainActivity : Activity() {
         }
     }
 
+    /**
+     * Registers broadcast receiver for app events.
+     */
     private fun registerBroadcastReceiver() {
         messageReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
@@ -263,6 +389,9 @@ class MainActivity : Activity() {
                     ACTION_TERMINATE_UI -> {
                         finishAndRemoveTask()
                     }
+                    ACTION_CLOSE_GUI -> {
+                        finish()
+                    }
                 }
             }
         }
@@ -270,6 +399,7 @@ class MainActivity : Activity() {
         val filter = IntentFilter().apply {
             addAction(ActivityStatusCheckReceiver.ACTION_EVENT)
             addAction(ACTION_TERMINATE_UI)
+            addAction(ACTION_CLOSE_GUI)
         }
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -279,6 +409,9 @@ class MainActivity : Activity() {
         }
     }
 
+    /**
+     * Handles Garmin activity events received via broadcast.
+     */
     private fun handleGarminEvent(type: String?, intent: Intent) {
         when (type) {
             "Started", "Stopped" -> {
@@ -309,7 +442,18 @@ class MainActivity : Activity() {
                 }
             }
             
-            "Terminate" -> {
+            "Created" -> {
+                val timestamp = intent.getLongExtra("timestamp", 0)
+                val devices = intent.getStringExtra("devices") ?: ""
+                val deviceList = if (devices.isEmpty()) emptyList() else devices.split("/")
+                appendLog("[${ts()}] WORKER CREATED: Listener is now running")
+                appendLog("[${ts()}] Initial devices: ${deviceList.size} device(s)")
+                deviceList.forEach {
+                    appendLog("[${ts()}]   - $it")
+                }
+            }
+            
+            "Terminated" -> {
                 val reason = intent.getStringExtra("reason") ?: "Unknown"
                 appendLog("[${ts()}] WORKER TERMINATED: $reason")
             }
@@ -318,6 +462,9 @@ class MainActivity : Activity() {
         updateServiceStatus()
     }
 
+    /**
+     * Appends a line to the log display.
+     */
     private fun appendLog(line: String) {
         handler.post {
             logView.append("$line\n")
@@ -325,6 +472,9 @@ class MainActivity : Activity() {
         }
     }
 
+    /**
+     * Checks if all required permissions are granted.
+     */
     private fun hasRequiredPermissions(): Boolean {
         val needs = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
         if (Build.VERSION.SDK_INT >= 31) {
@@ -337,6 +487,9 @@ class MainActivity : Activity() {
         return needs.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }
     }
 
+    /**
+     * Requests required runtime permissions.
+     */
     private fun requestRequiredPermissions() {
         val perms = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
         if (Build.VERSION.SDK_INT >= 31) {
@@ -346,13 +499,13 @@ class MainActivity : Activity() {
         if (Build.VERSION.SDK_INT >= 33) {
             perms.add(Manifest.permission.POST_NOTIFICATIONS)
         }
-        ActivityCompat.requestPermissions(this, perms.toTypedArray(), 100)
+        ActivityCompat.requestPermissions(this, perms.toTypedArray(), PERMISSION_REQUEST_CODE)
         appendLog("[${ts()}] Requesting permissions...")
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 100) {
+        if (requestCode == PERMISSION_REQUEST_CODE) {
             val allGranted = grantResults.all { it == PackageManager.PERMISSION_GRANTED }
             appendLog("[${ts()}] Permissions ${if (allGranted) "granted" else "denied"}")
             if (allGranted) {
@@ -372,24 +525,26 @@ class MainActivity : Activity() {
         }
         
         updateServiceStatus()
+        updateBatteryStats()
     }
     
     override fun onDestroy() {
+        batteryUpdateRunnable?.let { handler.removeCallbacks(it) }
+        batteryUpdateRunnable = null
+        
         super.onDestroy()
         
-        // Send terminate broadcast when MainActivity is destroyed
         try {
             val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
-                putExtra("type", "Terminate")
+                putExtra("type", "Terminated")
                 putExtra("reason", "MainActivity destroyed")
             }
             sendBroadcast(intent)
-            Log.i(TAG, "Terminate broadcast sent from onDestroy")
+            Log.i(TAG, "Terminated broadcast sent from onDestroy")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to send terminate broadcast: ${e.message}")
+            Log.e(TAG, "Failed to send terminated broadcast: ${e.message}")
         }
         
-        // Clean up broadcast receiver
         messageReceiver?.let {
             try {
                 unregisterReceiver(it)

@@ -12,6 +12,10 @@ import com.garmin.android.connectiq.ConnectIQ.IQSdkErrorStatus
 import com.garmin.android.connectiq.IQApp
 import com.garmin.android.connectiq.IQDevice
 
+/**
+ * Singleton service managing ConnectIQ SDK interactions.
+ * Handles device discovery, listener registration, and message broadcasting.
+ */
 class ConnectIQService private constructor() {
 
     companion object {
@@ -29,6 +33,9 @@ class ConnectIQService private constructor() {
             }
         }
         
+        /**
+         * Resets the singleton instance and shuts down SDK.
+         */
         fun resetInstance() {
             synchronized(this) {
                 instance?.let {
@@ -55,11 +62,19 @@ class ConnectIQService private constructor() {
     private var messageCallback: ((String, String, Long) -> Unit)? = null
     private var deviceChangeCallback: (() -> Unit)? = null
     private var appContext: Context? = null
+    
+    @Volatile
     private var isReinitializing = false
 
     private fun log(msg: String) = android.util.Log.i(TAG, msg)
     private fun logError(msg: String) = android.util.Log.e(TAG, msg)
 
+    /**
+     * Initializes the ConnectIQ SDK if not already initialized.
+     * 
+     * @param context Application context
+     * @param onReady Callback invoked when SDK is ready
+     */
     fun initializeSdkIfNeeded(context: Context, onReady: (() -> Unit)? = null) {
         appContext = context.applicationContext
         
@@ -94,29 +109,37 @@ class ConnectIQService private constructor() {
         })
     }
 
+    /**
+     * Tests if SDK is functional and recovers if service binding is lost.
+     * 
+     * @param context Application context for reinitialization
+     * @return true if SDK is functional, false if recovery is in progress
+     */
     private fun testAndRecoverSdk(context: Context): Boolean {
         if (isReinitializing) return false
         
-        val ciq = connectIQ ?: return false
+        val sdk = connectIQ ?: return false
         
         try {
-            // Test if SDK is actually functional
-            val test = ciq.connectedDevices
+            val test = sdk.connectedDevices
             return true
         } catch (e: Exception) {
             if (e.message?.contains("SDK not initialized") == true) {
-                log("SDK service binding lost, reinitializing...")
-                isReinitializing = true
+                synchronized(this) {
+                    if (isReinitializing) return false
+                    isReinitializing = true
+                }
                 
-                // Clear the broken instance
+                log("SDK service binding lost, reinitializing...")
+                
                 connectIQ = null
                 
-                // Reinitialize
                 initializeSdkIfNeeded(context) {
-                    isReinitializing = false
+                    synchronized(this) {
+                        isReinitializing = false
+                    }
                     log("SDK reinitialized successfully after service binding loss")
                     
-                    // Re-register device listeners
                     refreshAndRegisterDevices()
                 }
                 
@@ -126,6 +149,12 @@ class ConnectIQService private constructor() {
         }
     }
 
+    /**
+     * Checks if all required permissions are granted.
+     * 
+     * @param context Context to check permissions
+     * @return true if all required permissions are granted
+     */
     fun hasRequiredPermissions(context: Context): Boolean {
         val needs = mutableListOf(android.Manifest.permission.ACCESS_FINE_LOCATION)
         if (Build.VERSION.SDK_INT >= 31) {
@@ -135,22 +164,35 @@ class ConnectIQService private constructor() {
         return needs.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
     }
 
+    /**
+     * Checks if SDK is initialized.
+     * 
+     * @return true if SDK is initialized
+     */
     fun isInitialized(): Boolean = connectIQ != null
 
-    private fun isRealDevice(d: IQDevice): Boolean {
-        return d.deviceIdentifier != KNOWN_SIMULATOR_ID &&
-                !d.friendlyName.orEmpty().contains("simulator", true)
+    /**
+     * Determines if a device is a real device (not simulator).
+     */
+    private fun isRealDevice(device: IQDevice): Boolean {
+        return device.deviceIdentifier != KNOWN_SIMULATOR_ID &&
+                !device.friendlyName.orEmpty().contains("simulator", true)
     }
 
+    /**
+     * Gets list of connected real devices (excludes simulators).
+     * 
+     * @param context Optional context for SDK recovery
+     * @return List of connected real devices
+     */
     fun getConnectedRealDevices(context: Context? = null): List<IQDevice> {
-        val ciq = connectIQ ?: return emptyList()
+        val sdk = connectIQ ?: return emptyList()
         return try {
-            val connected = ciq.connectedDevices ?: emptyList()
+            val connected = sdk.connectedDevices ?: emptyList()
             connected.filter { isRealDevice(it) }
         } catch (e: Exception) {
             logError("Error getting devices: ${e.message}")
             
-            // Try to recover if context provided
             if (context != null && e.message?.contains("SDK not initialized") == true) {
                 testAndRecoverSdk(context)
             }
@@ -159,11 +201,14 @@ class ConnectIQService private constructor() {
         }
     }
 
+    /**
+     * Refreshes device list and registers for device status change events.
+     */
     fun refreshAndRegisterDevices() {
-        val ciq = connectIQ ?: return
+        val sdk = connectIQ ?: return
         
         val all = try {
-            ciq.knownDevices
+            sdk.knownDevices
         } catch (e: Exception) {
             emptyList()
         }
@@ -172,19 +217,16 @@ class ConnectIQService private constructor() {
         
         candidates.forEach { device ->
             try {
-                ciq.registerForDeviceEvents(device) { dev, status ->
+                sdk.registerForDeviceEvents(device) { dev, status ->
                     log("Device ${dev.friendlyName} status changed: $status")
                     
-                    // Trigger callback on connect, disconnect, and unpair
                     when (status) {
                         IQDevice.IQDeviceStatus.CONNECTED,
                         IQDevice.IQDeviceStatus.NOT_CONNECTED,
                         IQDevice.IQDeviceStatus.NOT_PAIRED -> {
                             deviceChangeCallback?.invoke()
                         }
-                        else -> {
-                            // Do nothing for unknown statuses
-                        }
+                        else -> {}
                     }
                 }
             } catch (e: Exception) {
@@ -193,6 +235,9 @@ class ConnectIQService private constructor() {
         }
     }
 
+    /**
+     * Registers message listeners for all connected devices.
+     */
     fun registerListenersForAllDevices() {
         val devices = getConnectedRealDevices()
         log("Registering ${devices.size} device(s)")
@@ -207,8 +252,11 @@ class ConnectIQService private constructor() {
         sendDeviceListBroadcast(devices)
     }
 
+    /**
+     * Registers message listener for a specific device.
+     */
     private fun registerListenerForDevice(device: IQDevice) {
-        val ciq = connectIQ ?: return
+        val sdk = connectIQ ?: return
         val app = IQApp(APP_UUID)
         val appKey = "${device.deviceIdentifier}:$APP_UUID"
         
@@ -216,7 +264,6 @@ class ConnectIQService private constructor() {
             return
         }
         
-        // Capture device name at registration time - guaranteed correct for this device
         val knownDeviceName = device.friendlyName?.takeIf { it.isNotEmpty() } ?: "Unknown Device"
         
         val appListener = IQApplicationEventListener { dev, _, messages, _ ->
@@ -224,7 +271,6 @@ class ConnectIQService private constructor() {
             
             messages.forEach { msg ->
                 val payload = msg.toString()
-                // Use captured device name - always correct because listener is per-device
                 val deviceName = knownDeviceName
                 val timestamp = System.currentTimeMillis()
                 
@@ -236,7 +282,7 @@ class ConnectIQService private constructor() {
         }
         
         try {
-            ciq.registerForAppEvents(device, app, appListener)
+            sdk.registerForAppEvents(device, app, appListener)
             appListeners[appKey] = appListener
             log("Registered listener for $knownDeviceName")
         } catch (e: Exception) {
@@ -244,6 +290,9 @@ class ConnectIQService private constructor() {
         }
     }
 
+    /**
+     * Sends activity message broadcast.
+     */
     private fun sendMessageBroadcast(payload: String, deviceName: String) {
         val context = appContext ?: return
         
@@ -283,6 +332,9 @@ class ConnectIQService private constructor() {
         }
     }
 
+    /**
+     * Sends device list broadcast.
+     */
     private fun sendDeviceListBroadcast(devices: List<IQDevice>) {
         val context = appContext ?: return
         
@@ -301,10 +353,20 @@ class ConnectIQService private constructor() {
         }
     }
 
+    /**
+     * Sets callback for activity messages.
+     * 
+     * @param callback Callback function (payload, deviceName, timestamp)
+     */
     fun setMessageCallback(callback: ((String, String, Long) -> Unit)?) {
         messageCallback = callback
     }
 
+    /**
+     * Sets callback for device status changes.
+     * 
+     * @param callback Callback function invoked on device status change
+     */
     fun setDeviceChangeCallback(callback: (() -> Unit)?) {
         deviceChangeCallback = callback
     }

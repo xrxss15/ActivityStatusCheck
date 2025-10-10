@@ -1,266 +1,248 @@
-/*
- * ===============================================================================
- * GARMIN ACTIVITY LISTENER - Android Companion App
- * ===============================================================================
- * 
- * PURPOSE:
- *   Background listener for Garmin ConnectIQ watch activities.
- *   Receives activity start/stop events from Garmin watches and broadcasts
- *   them to Tasker for home automation integration.
- *
- * ARCHITECTURE:
- *   - MainActivity: UI for monitoring and configuration
- *   - ConnectIQService: Singleton managing Garmin SDK and device communication
- *   - ConnectIQQueryWorker: Long-running WorkManager worker for background listening
- *   - ActivityStatusCheckReceiver: BroadcastReceiver for control and message distribution
- *
- * COMMUNICATION FLOW:
- *   Watch (CIQ App) → Bluetooth → ConnectIQ SDK → ConnectIQService → 
- *   Worker/MainActivity → Broadcast → Tasker
- *
- * ===============================================================================
- * USAGE GUIDE
- * ===============================================================================
- *
- * 1. INITIAL SETUP
- * ----------------
- *   - Install app on Android phone
- *   - Grant all required permissions:
- *     * Location (for Bluetooth device discovery)
- *     * Bluetooth Scan/Connect
- *     * Post Notifications
- *   - Disable battery optimization (Settings → Battery Settings button)
- *   - Install CIQ app on Garmin watch via Garmin Connect
- *   - Pair watch with phone via Garmin Connect app
- *
- * 2. STARTING THE LISTENER
- * -------------------------
- *   METHOD 1 - App Launch (Recommended):
- *     - Launch "Garmin Listener" app
- *     - App auto-starts background worker
- *     - Persistent notification appears
- *
- *   METHOD 2 - Tasker (for automation):
- *     - Use Tasker action: Launch App → Garmin Listener
- *     - App will auto-start worker
- *
- * 3. STOPPING THE LISTENER
- * -------------------------
- *   METHOD 1 - Notification:
- *     - Tap "Exit" in persistent notification
- *     - Fully terminates app and worker
- *
- *   METHOD 2 - Tasker:
- *     - Send Intent action: net.xrxss15.GARMIN_ACTIVITY_LISTENER_TERMINATE
- *     - Target: Broadcast Receiver
- *     - Package: net.xrxss15
- *     - Class: net.xrxss15.ActivityStatusCheckReceiver
- *
- * 4. RECEIVING ACTIVITY EVENTS IN TASKER
- * ---------------------------------------
- *   Create Event Profile:
- *     Event: Intent Received
- *     Action: net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT
- *
- * ===============================================================================
- * BROADCAST INTENTS REFERENCE
- * ===============================================================================
- *
- * ─────────────────────────────────────────────────────────────────────────────
- * OUTBOUND (App → Tasker):
- * ─────────────────────────────────────────────────────────────────────────────
- * 
- * ALL events use action: net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT
- * Differentiate by checking the "type" extra
- *
- * ─────────────────────────────────────────────────────────────────────────────
- * EVENT 1: Activity Started
- * ─────────────────────────────────────────────────────────────────────────────
- *   When: Watch activity starts
- *
- *   Extras:
- *     type     (String) = "Started"
- *     device   (String) = Device name (e.g., "Fenix 7S")
- *     time     (Long)   = Unix timestamp in seconds
- *     activity (String) = Activity type (e.g., "Running", "Cycling")
- *     duration (Int)    = 0 (always 0 for started events)
- *
- *   Tasker Variables:
- *     %type = "Started"
- *     %device = "Fenix 7S"
- *     %time = 1728405123
- *     %activity = "Running"
- *     %duration = 0
- *
- * ─────────────────────────────────────────────────────────────────────────────
- * EVENT 2: Activity Stopped
- * ─────────────────────────────────────────────────────────────────────────────
- *   When: Watch activity stops
- *
- *   Extras:
- *     type     (String) = "Stopped"
- *     device   (String) = Device name (e.g., "Fenix 7S")
- *     time     (Long)   = Unix timestamp in seconds
- *     activity (String) = Activity type (e.g., "Running", "Cycling")
- *     duration (Int)    = Activity duration in seconds
- *
- *   Tasker Variables:
- *     %type = "Stopped"
- *     %device = "Fenix 7S"
- *     %time = 1728405456
- *     %activity = "Running"
- *     %duration = 333
- *
- * ─────────────────────────────────────────────────────────────────────────────
- * EVENT 3: Device List Updated
- * ─────────────────────────────────────────────────────────────────────────────
- *   When: Device connects/disconnects or on initial connection
- *
- *   Extras:
- *     type    (String) = "DeviceList"
- *     devices (String) = Device names separated by "/" 
- *                        Examples: "Fenix 7S"
- *                                  "Fenix 7S/Edge 1040"
- *                                  "" (empty = no devices)
- *
- *   Tasker Variables:
- *     %type = "DeviceList"
- *     %devices = "Fenix 7S/Edge 1040"
- *
- *   Parse multiple devices:
- *     Variable Split: %devices
- *     Splitter: /
- *     Result: %devices1, %devices2, %devices3, ...
- *
- * ─────────────────────────────────────────────────────────────────────────────
- * EVENT 4: Worker Terminated
- * ─────────────────────────────────────────────────────────────────────────────
- *   When: Background worker stops (normal or error)
- *
- *   Extras:
- *     type   (String) = "Terminate"
- *     reason (String) = Termination reason
- *                       Examples: "Stopped"
- *                                 "SDK not initialized"
- *
- *   Tasker Variables:
- *     %type = "Terminate"
- *     %reason = "Stopped"
- *
- * ─────────────────────────────────────────────────────────────────────────────
- * INBOUND (Tasker → App):
- * ─────────────────────────────────────────────────────────────────────────────
- * 
- * ACTION: net.xrxss15.GARMIN_ACTIVITY_LISTENER_TERMINATE
- *   Purpose: Fully terminate app and worker
- *   Target: Broadcast Receiver
- *   Package: net.xrxss15
- *   Class: net.xrxss15.ActivityStatusCheckReceiver
- *   Extras: None
- *
- *   Tasker Configuration:
- *     Action: Send Intent
- *     Action: net.xrxss15.GARMIN_ACTIVITY_LISTENER_TERMINATE
- *     Target: Broadcast Receiver
- *     Package: net.xrxss15
- *     Class: net.xrxss15.ActivityStatusCheckReceiver
- *
- *   Test with adb:
- *     adb shell am broadcast -a net.xrxss15.GARMIN_ACTIVITY_LISTENER_TERMINATE \
- *       -n net.xrxss15/.ActivityStatusCheckReceiver
- *
- * ===============================================================================
- */
-
 package net.xrxss15
 
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 
+/**
+ * Broadcast receiver handling app control intents.
+ * Manages worker lifecycle and app termination.
+ * 
+ * =============================================================================
+ * TASKER INTEGRATION - INCOMING INTENTS (Control the app from Tasker)
+ * =============================================================================
+ * 
+ * 1. START_BACKGROUND - Start background worker without showing GUI
+ *    Action: net.xrxss15.START_BACKGROUND
+ *    Target: Broadcast Receiver
+ *    Package: net.xrxss15
+ *    
+ * 2. OPEN_GUI - Open the app GUI (if worker is running, shows status)
+ *    Action: net.xrxss15.OPEN_GUI
+ *    Target: Broadcast Receiver
+ *    Package: net.xrxss15
+ *    
+ * 3. CLOSE_GUI - Close the app GUI (worker keeps running in background)
+ *    Action: net.xrxss15.CLOSE_GUI
+ *    Target: Broadcast Receiver
+ *    Package: net.xrxss15
+ *    
+ * 4. TERMINATE - Completely stop the app (worker + GUI + SDK shutdown)
+ *    Action: net.xrxss15.TERMINATE
+ *    Target: Broadcast Receiver
+ *    Package: net.xrxss15
+ *    Class: net.xrxss15.ActivityStatusCheckReceiver
+ * 
+ * =============================================================================
+ * TASKER INTEGRATION - OUTGOING BROADCASTS (App sends these to Tasker)
+ * =============================================================================
+ * 
+ * All outgoing broadcasts use:
+ *   Action: net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT
+ *   
+ * Event types (check %type variable in Tasker):
+ * 
+ * 1. "Created" - Worker started successfully and is now running
+ *    Sent ONLY after successful SDK initialization and device discovery.
+ *    Extras:
+ *      - type: "Created"
+ *      - timestamp: Long (milliseconds)
+ *      - devices: String (device names separated by "/", empty if no devices)
+ *    
+ * 2. "Started" - Activity started on watch
+ *    Extras:
+ *      - type: "Started"
+ *      - device: String (device name)
+ *      - time: Long (unix timestamp in seconds)
+ *      - activity: String (activity type, e.g., "Running", "Cycling")
+ *      - duration: Int (0 for start event)
+ *    
+ * 3. "Stopped" - Activity stopped on watch
+ *    Extras:
+ *      - type: "Stopped"
+ *      - device: String (device name)
+ *      - time: Long (unix timestamp in seconds)
+ *      - activity: String (activity type)
+ *      - duration: Int (duration in seconds)
+ *    
+ * 4. "DeviceList" - Device connection status changed
+ *    Extras:
+ *      - type: "DeviceList"
+ *      - devices: String (device names separated by "/", empty if no devices)
+ *    
+ * 5. "Terminated" - Worker terminated (intentionally or due to error)
+ *    Extras:
+ *      - type: "Terminated"
+ *      - reason: String (termination reason)
+ * 
+ * =============================================================================
+ * TASKER EXAMPLE PROFILES
+ * =============================================================================
+ * 
+ * Example 1: Start app when connected to home WiFi
+ * -------------------------------------------------
+ * Profile: Home WiFi Connected
+ *   State: Wifi Connected
+ *     SSID: YourHomeWifi
+ *   
+ * Task: Start Garmin Listener
+ *   Send Intent:
+ *     Action: net.xrxss15.START_BACKGROUND
+ *     Package: net.xrxss15
+ *     Target: Broadcast Receiver
+ * 
+ * 
+ * Example 2: Track app running state
+ * -----------------------------------
+ * Profile: Garmin Listener State
+ *   Event: Intent Received
+ *     Action: net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT
+ *   
+ * Task: Update State Variable
+ *   If %type = Created
+ *     Variable Set %GarminListenerRunning = true
+ *     Variable Set %GarminDevices = %devices
+ *   Else If %type = Terminated
+ *     Variable Set %GarminListenerRunning = false
+ *     Variable Clear %GarminDevices
+ * 
+ * 
+ * Example 3: React to activity start/stop
+ * ----------------------------------------
+ * Profile: Activity Events
+ *   Event: Intent Received
+ *     Action: net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT
+ *   
+ * Task: Handle Activity Event
+ *   If %type = Started
+ *     Say "Activity started: %activity on %device"
+ *   Else If %type = Stopped
+ *     Say "Activity stopped after %duration seconds"
+ * 
+ * 
+ * Example 4: Stop listener when leaving home
+ * -------------------------------------------
+ * Profile: Away From Home
+ *   State: Not Wifi Connected
+ *     SSID: YourHomeWifi
+ *   
+ * Task: Stop Garmin Listener
+ *   Send Intent:
+ *     Action: net.xrxss15.TERMINATE
+ *     Package: net.xrxss15
+ *     Target: Broadcast Receiver
+ *     Class: net.xrxss15.ActivityStatusCheckReceiver
+ * 
+ * =============================================================================
+ */
 class ActivityStatusCheckReceiver : BroadcastReceiver() {
 
     companion object {
-        private const val TAG = "GarminActivityListener.Receiver"
+        // Incoming intents (control commands)
+        const val ACTION_START_BACKGROUND = "net.xrxss15.START_BACKGROUND"
+        const val ACTION_OPEN_GUI = "net.xrxss15.OPEN_GUI"
+        const val ACTION_CLOSE_GUI = "net.xrxss15.CLOSE_GUI"
+        const val ACTION_TERMINATE = "net.xrxss15.TERMINATE"
         
-        const val ACTION_START = "net.xrxss15.internal.START"
-        const val ACTION_STOP = "net.xrxss15.internal.STOP"
-        const val ACTION_TERMINATE = "net.xrxss15.GARMIN_ACTIVITY_LISTENER_TERMINATE"
+        // Outgoing broadcast (event notifications)
         const val ACTION_EVENT = "net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT"
+        
+        private const val TAG = "GarminActivityListener.Receiver"
+        private const val WORKER_NAME = "garmin_listener"
+
+        /**
+         * Terminates the entire app including worker and UI.
+         * Called when ACTION_TERMINATE intent is received.
+         * 
+         * Shutdown sequence:
+         * 1. Cancel background worker
+         * 2. Shutdown ConnectIQ SDK and reset singleton
+         * 3. Close MainActivity UI
+         * 4. Let Android clean up process naturally
+         * 
+         * @param context Application context
+         */
+        fun terminateApp(context: Context) {
+            Log.i(TAG, "Terminating app")
+            
+            // Stop worker
+            WorkManager.getInstance(context).cancelUniqueWork(WORKER_NAME)
+            
+            // Shutdown SDK and reset singleton
+            ConnectIQService.resetInstance()
+            
+            // Close UI
+            val closeIntent = Intent(MainActivity.ACTION_TERMINATE_UI).apply {
+                setPackage(context.packageName)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            }
+            context.sendBroadcast(closeIntent)
+        }
     }
 
-    override fun onReceive(context: Context, intent: Intent) {
-        Log.i(TAG, "Received intent: ${intent.action}")
-        
+    /**
+     * Handles incoming broadcast intents.
+     * Routes control commands to appropriate handlers.
+     */
+    override fun onReceive(context: Context?, intent: Intent?) {
+        if (context == null || intent == null) return
+
         when (intent.action) {
-            ACTION_START -> {
-                Log.i(TAG, "Starting listener")
-                startListener(context)
+            ACTION_START_BACKGROUND -> {
+                Log.i(TAG, "START_BACKGROUND received")
+                startWorker(context)
             }
             
-            ACTION_STOP -> {
-                Log.i(TAG, "Stopping listener")
-                stopListener(context)
+            ACTION_OPEN_GUI -> {
+                Log.i(TAG, "OPEN_GUI received")
+                val openIntent = Intent(context, MainActivity::class.java).apply {
+                    action = MainActivity.ACTION_OPEN_GUI
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(openIntent)
+            }
+            
+            ACTION_CLOSE_GUI -> {
+                Log.i(TAG, "CLOSE_GUI received")
+                val closeIntent = Intent(MainActivity.ACTION_CLOSE_GUI).apply {
+                    setPackage(context.packageName)
+                }
+                context.sendBroadcast(closeIntent)
             }
             
             ACTION_TERMINATE -> {
-                Log.i(TAG, "Terminating app")
+                Log.i(TAG, "TERMINATE received")
                 terminateApp(context)
             }
         }
     }
 
-    private fun startListener(context: Context) {
-        Log.i(TAG, "Starting Garmin listener")
+    /**
+     * Starts the background worker with proper constraints.
+     * Worker runs as foreground service with notification.
+     * 
+     * @param context Application context
+     */
+    private fun startWorker(context: Context) {
+        val constraints = Constraints.Builder()
+            .setRequiresBatteryNotLow(false)
+            .setRequiresCharging(false)
+            .setRequiresDeviceIdle(false)
+            .build()
         
-        val workRequest = OneTimeWorkRequestBuilder<ConnectIQQueryWorker>().build()
+        val workRequest = OneTimeWorkRequestBuilder<ConnectIQQueryWorker>()
+            .setConstraints(constraints)
+            .build()
         
-        WorkManager.getInstance(context.applicationContext)
-            .enqueueUniqueWork(
-                "garmin_listener",
-                ExistingWorkPolicy.KEEP,
-                workRequest
-            )
-        
-        Log.i(TAG, "Listener started")
-    }
-
-    private fun stopListener(context: Context) {
-        Log.i(TAG, "Stopping Garmin listener")
-        
-        WorkManager.getInstance(context.applicationContext)
-            .cancelUniqueWork("garmin_listener")
-        
-        Log.i(TAG, "Listener stopped")
-    }
-
-    private fun terminateApp(context: Context) {
-        Log.i(TAG, "Terminating entire app")
-        
-        // 1. Tell MainActivity to finish and remove from recents
-        val finishIntent = Intent(MainActivity.ACTION_TERMINATE_UI).apply {
-            setPackage(context.packageName)
-        }
-        context.sendBroadcast(finishIntent)
-        
-        // 2. Stop worker
-        stopListener(context)
-        
-        // 3. Give time for UI to finish and worker to stop
-        Thread.sleep(500)
-        
-        // 4. Properly reset singleton (shuts down SDK and clears instance)
-        try {
-            ConnectIQService.resetInstance()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error during shutdown: ${e.message}")
-        }
-        
-        // 5. Kill process
-        android.os.Process.killProcess(android.os.Process.myPid())
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            WORKER_NAME,
+            ExistingWorkPolicy.KEEP,
+            workRequest
+        )
     }
 }

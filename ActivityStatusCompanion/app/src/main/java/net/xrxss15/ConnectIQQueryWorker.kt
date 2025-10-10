@@ -6,6 +6,9 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
@@ -18,6 +21,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * Background worker that maintains foreground service for Garmin activity listening.
+ * Runs indefinitely until explicitly stopped.
+ */
 class ConnectIQQueryWorker(
     appContext: Context,
     workerParams: WorkerParameters
@@ -27,6 +34,9 @@ class ConnectIQQueryWorker(
         private const val TAG = "GarminActivityListener.Worker"
         private const val NOTIFICATION_ID = 1001
         private const val CHANNEL_ID = "garmin_listener_channel"
+        private const val SDK_INIT_TIMEOUT_MS = 30_000L
+        private const val SDK_INIT_CHECK_INTERVAL_MS = 100L
+        private const val WAKE_LOCK_TAG = "GarminActivityListener:WorkerWakeLock"
     }
 
     private val connectIQService = ConnectIQService.getInstance()
@@ -34,9 +44,17 @@ class ConnectIQQueryWorker(
     private var lastMessage: String? = null
     private var lastMessageTime: Long = 0
     private lateinit var notificationManager: NotificationManager
+    private var wakeLock: PowerManager.WakeLock? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
+    /**
+     * Main worker execution method.
+     * Initializes foreground service, waits for SDK, and listens for events.
+     */
     override suspend fun doWork(): Result {
         Log.i(TAG, "Worker starting")
+        
+        acquireWakeLock()
         
         return try {
             notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -46,14 +64,16 @@ class ConnectIQQueryWorker(
             
             Log.i(TAG, "Waiting for SDK initialization...")
             var attempts = 0
-            while (!connectIQService.isInitialized() && attempts < 300) {
-                delay(100)
+            val maxAttempts = (SDK_INIT_TIMEOUT_MS / SDK_INIT_CHECK_INTERVAL_MS).toInt()
+            
+            while (!connectIQService.isInitialized() && attempts < maxAttempts) {
+                delay(SDK_INIT_CHECK_INTERVAL_MS)
                 attempts++
             }
             
             if (!connectIQService.isInitialized()) {
-                Log.e(TAG, "SDK not initialized after 30 seconds")
-                sendTerminateBroadcast("SDK not initialized")
+                Log.e(TAG, "SDK not initialized after ${SDK_INIT_TIMEOUT_MS}ms")
+                sendTerminatedBroadcast("SDK not initialized")
                 return Result.failure()
             }
             
@@ -66,28 +86,36 @@ class ConnectIQQueryWorker(
             }
             
             connectIQService.setDeviceChangeCallback {
-                // Pass context for SDK recovery if needed
-                connectedDeviceNames = connectIQService.getConnectedRealDevices(applicationContext)
-                    .map { it.friendlyName ?: "Unknown" }
-                
-                val deviceNames = connectedDeviceNames.joinToString("/")
-                val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
-                    putExtra("type", "DeviceList")
-                    putExtra("devices", deviceNames)
+                mainHandler.post {
+                    connectedDeviceNames = connectIQService.getConnectedRealDevices(applicationContext)
+                        .map { it.friendlyName ?: "Unknown" }
+                    
+                    val deviceNames = connectedDeviceNames.joinToString("/")
+                    val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
+                        putExtra("type", "DeviceList")
+                        putExtra("devices", deviceNames)
+                    }
+                    applicationContext.sendBroadcast(intent)
+                    
+                    updateNotification()
                 }
-                applicationContext.sendBroadcast(intent)
-                
-                updateNotification()
             }
             
+            // Register listeners for all devices
             connectIQService.registerListenersForAllDevices()
             
+            // Get initial device list
             connectedDeviceNames = connectIQService.getConnectedRealDevices(applicationContext)
                 .map { it.friendlyName ?: "Unknown" }
             
             updateNotification()
             
+            // Send "Created" broadcast ONLY after successful initialization with device list
+            sendCreatedBroadcast(connectedDeviceNames)
+            
             Log.i(TAG, "Listening for events (${connectedDeviceNames.size} device(s))")
+            
+            releaseWakeLock()
             
             suspendCancellableCoroutine<Nothing> { continuation ->
                 continuation.invokeOnCancellation {
@@ -97,24 +125,65 @@ class ConnectIQQueryWorker(
             
         } catch (e: CancellationException) {
             Log.i(TAG, "Worker cancelled via exception")
-            sendTerminateBroadcast("Worker cancelled")
+            sendTerminatedBroadcast("Worker cancelled")
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Worker error", e)
-            sendTerminateBroadcast(e.message ?: "Unknown error")
+            sendTerminatedBroadcast(e.message ?: "Unknown error")
             Result.failure()
         } finally {
             Log.i(TAG, "Worker finally block")
+            releaseWakeLock()
             connectIQService.setMessageCallback(null)
             connectIQService.setDeviceChangeCallback(null)
         }
     }
     
+    /**
+     * Acquires wake lock to prevent CPU sleep during critical operations.
+     */
+    private fun acquireWakeLock() {
+        try {
+            val powerManager = applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            wakeLock = powerManager?.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                WAKE_LOCK_TAG
+            )
+            wakeLock?.acquire(10 * 60 * 1000L)
+            Log.i(TAG, "Wake lock acquired")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to acquire wake lock: ${e.message}")
+        }
+    }
+    
+    /**
+     * Releases wake lock.
+     */
+    private fun releaseWakeLock() {
+        try {
+            wakeLock?.let {
+                if (it.isHeld) {
+                    it.release()
+                    Log.i(TAG, "Wake lock released")
+                }
+            }
+            wakeLock = null
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to release wake lock: ${e.message}")
+        }
+    }
+    
+    /**
+     * Updates the foreground notification.
+     */
     private fun updateNotification() {
         val notification = buildNotification()
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
     
+    /**
+     * Parses activity message payload.
+     */
     private fun parseMessage(payload: String, deviceName: String): String {
         val parts = payload.split("|")
         if (parts.size < 4) return "Message from $deviceName"
@@ -127,10 +196,16 @@ class ConnectIQQueryWorker(
         return "$event ${parts[2]}"
     }
     
+    /**
+     * Formats timestamp for notification display.
+     */
     private fun formatTime(timestamp: Long): String {
         return SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(timestamp))
     }
     
+    /**
+     * Creates foreground service info.
+     */
     private fun createForegroundInfo(): ForegroundInfo {
         createNotificationChannel()
         val notification = buildNotification()
@@ -142,6 +217,9 @@ class ConnectIQQueryWorker(
         }
     }
     
+    /**
+     * Builds the foreground notification.
+     */
     private fun buildNotification(): android.app.Notification {
         val openIntent = Intent(applicationContext, MainActivity::class.java)
         val openPendingIntent = PendingIntent.getActivity(
@@ -173,6 +251,9 @@ class ConnectIQQueryWorker(
             .build()
     }
     
+    /**
+     * Builds notification content text.
+     */
     private fun buildContentText(): String {
         return when {
             connectedDeviceNames.isEmpty() -> "Waiting for devices..."
@@ -181,6 +262,9 @@ class ConnectIQQueryWorker(
         }
     }
     
+    /**
+     * Builds notification expanded text.
+     */
     private fun buildBigText(): String {
         val sb = StringBuilder()
         if (connectedDeviceNames.isEmpty()) {
@@ -197,6 +281,9 @@ class ConnectIQQueryWorker(
         return sb.toString()
     }
     
+    /**
+     * Creates notification channel for Android O+.
+     */
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -212,18 +299,46 @@ class ConnectIQQueryWorker(
         }
     }
     
-    private fun sendTerminateBroadcast(reason: String) {
+    /**
+     * Sends "Created" broadcast to indicate worker is running and ready.
+     * Includes initial device list.
+     * 
+     * @param deviceNames List of connected device names
+     */
+    private fun sendCreatedBroadcast(deviceNames: List<String>) {
+        try {
+            val devicesString = deviceNames.joinToString("/")
+            val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
+                putExtra("type", "Created")
+                putExtra("timestamp", System.currentTimeMillis())
+                putExtra("devices", devicesString)
+            }
+            
+            applicationContext.sendBroadcast(intent)
+            Log.i(TAG, "Created broadcast sent with ${deviceNames.size} device(s)")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Created broadcast failed", e)
+        }
+    }
+    
+    /**
+     * Sends "Terminated" broadcast to indicate worker has stopped.
+     * 
+     * @param reason Termination reason
+     */
+    private fun sendTerminatedBroadcast(reason: String) {
         try {
             val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
-                putExtra("type", "Terminate")
+                putExtra("type", "Terminated")
                 putExtra("reason", reason)
             }
             
             applicationContext.sendBroadcast(intent)
-            Log.i(TAG, "Terminate broadcast sent: $reason")
+            Log.i(TAG, "Terminated broadcast sent: $reason")
             
         } catch (e: Exception) {
-            Log.e(TAG, "Broadcast failed", e)
+            Log.e(TAG, "Terminated broadcast failed", e)
         }
     }
 }

@@ -3,16 +3,48 @@
     xmlns:tools="http://schemas.android.com/tools"
     package="net.xrxss15">
 
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.BLUETOOTH" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- ============================================ -->
+    <!-- BLUETOOTH PERMISSIONS (Android 12+)          -->
+    <!-- ============================================ -->
+    <!-- BLUETOOTH_SCAN: Required to discover Garmin devices -->
+    <!-- neverForLocation: We don't derive physical location from BLE scans -->
+    <uses-permission 
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s" />
+    
+    <!-- BLUETOOTH_CONNECT: Required to communicate with paired Garmin devices -->
+    <uses-permission 
+        android:name="android.permission.BLUETOOTH_CONNECT"
+        tools:targetApi="s" />
+
+    <!-- ============================================ -->
+    <!-- FOREGROUND SERVICE PERMISSIONS               -->
+    <!-- ============================================ -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission 
+        android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"
+        tools:targetApi="upside_down_cake" />
+
+    <!-- ============================================ -->
+    <!-- NOTIFICATION PERMISSIONS (Android 13+)       -->
+    <!-- ============================================ -->
+    <uses-permission 
+        android:name="android.permission.POST_NOTIFICATIONS"
+        tools:targetApi="tiramisu" />
+
+    <!-- ============================================ -->
+    <!-- BACKGROUND OPERATION PERMISSIONS             -->
+    <!-- ============================================ -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- ============================================ -->
+    <!-- MINIMUM SDK VERSION                          -->
+    <!-- ============================================ -->
+    <uses-sdk
+        android:minSdkVersion="31"
+        android:targetSdkVersion="35" />
 
     <application
         android:allowBackup="true"
@@ -20,6 +52,9 @@
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light">
 
+        <!-- ============================================ -->
+        <!-- MAIN ACTIVITY                                -->
+        <!-- ============================================ -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -30,7 +65,9 @@
             </intent-filter>
         </activity>
 
-        <!-- Invisible activity for SDK recovery -->
+        <!-- ============================================ -->
+        <!-- SDK RECOVERY ACTIVITY                        -->
+        <!-- ============================================ -->
         <activity
             android:name=".SdkInitActivity"
             android:exported="false"
@@ -38,6 +75,9 @@
             android:excludeFromRecents="true"
             android:noHistory="true" />
 
+        <!-- ============================================ -->
+        <!-- BROADCAST RECEIVER FOR REMOTE CONTROL        -->
+        <!-- ============================================ -->
         <receiver
             android:name=".ActivityStatusCheckReceiver"
             android:exported="true">
@@ -48,10 +88,27 @@
             </intent-filter>
         </receiver>
         
+        <!-- ============================================ -->
+        <!-- WORKMANAGER FOREGROUND SERVICE               -->
+        <!-- ============================================ -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:exported="false"
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
+        
+        <!-- ============================================ -->
+        <!-- WORKMANAGER INITIALIZATION PROVIDER          -->
+        <!-- ============================================ -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup" />
+        </provider>
 
     </application>
 

@@ -17,6 +17,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -34,78 +36,103 @@ class ConnectIQQueryWorker(
         private const val SDK_CHECK_INTERVAL_MS = 500L
     }
 
+    // Instance variables (not shared across workers)
     private val connectIQService = ConnectIQService.getInstance()
     private var connectedDeviceNames = listOf<String>()
     private var lastMessage: String? = null
     private var lastMessageTime: Long = 0
     private lateinit var notificationManager: NotificationManager
+    
+    // Mutex for thread-safe notification state updates
+    private val stateMutex = Mutex()
 
     override suspend fun doWork(): Result {
         Log.i(TAG, "Worker starting")
-        
         return try {
             notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            
             setForeground(createForegroundInfo())
             Log.i(TAG, "Foreground service started")
-            
+
             Log.i(TAG, "Waiting for SDK initialization...")
             var attempts = 0
             val maxAttempts = (SDK_INIT_WAIT_MS / SDK_CHECK_INTERVAL_MS).toInt()
-            
+
             while (!connectIQService.isInitialized() && attempts < maxAttempts) {
                 delay(SDK_CHECK_INTERVAL_MS)
                 attempts++
             }
-            
+
             if (!connectIQService.isInitialized()) {
                 Log.e(TAG, "SDK not initialized after ${SDK_INIT_WAIT_MS}ms")
                 sendTerminatedBroadcast("SDK not initialized by MainActivity")
                 return Result.failure()
             }
-            
+
             Log.i(TAG, "SDK confirmed initialized")
-            
+
             connectIQService.setMessageCallback { payload, deviceName, timestamp ->
-                lastMessage = parseMessage(payload, deviceName)
-                lastMessageTime = timestamp
-                updateNotification()
-            }
-            
-            connectIQService.setDeviceChangeCallback {
-                CoroutineScope(Dispatchers.IO).launch {
-                    connectedDeviceNames = connectIQService.getConnectedRealDevices(applicationContext)
-                        .map { it.friendlyName ?: "Unknown" }
-                    
-                    val deviceNames = connectedDeviceNames.joinToString("/")
-                    val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
-                        addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
-                        putExtra("type", "DeviceList")
-                        putExtra("devices", deviceNames)
+                CoroutineScope(Dispatchers.Main).launch {
+                    try {
+                        stateMutex.withLock {
+                            lastMessage = parseMessage(payload, deviceName)
+                            lastMessageTime = timestamp
+                        }
+                        updateNotification()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error in message callback: ${e.message}")
                     }
-                    applicationContext.sendBroadcast(intent)
-                    
-                    updateNotification()
                 }
             }
-            
+
+            connectIQService.setDeviceChangeCallback {
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        Log.i(TAG, "Device change callback triggered")
+                        
+                        // Re-register listeners after device changes or SDK recovery
+                        connectIQService.registerListenersForAllDevices()
+                        
+                        val devices = connectIQService.getConnectedRealDevices(applicationContext)
+                            .map { it.friendlyName ?: "Unknown" }
+                        
+                        stateMutex.withLock {
+                            connectedDeviceNames = devices
+                        }
+
+                        val deviceNames = devices.joinToString("/")
+                        val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
+                            addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
+                            putExtra("type", "DeviceList")
+                            putExtra("devices", deviceNames)
+                        }
+                        applicationContext.sendBroadcast(intent)
+                        updateNotification()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error in device change callback: ${e.message}")
+                    }
+                }
+            }
+
             connectIQService.registerListenersForAllDevices()
-            
-            connectedDeviceNames = connectIQService.getConnectedRealDevices(applicationContext)
+            val initialDevices = connectIQService.getConnectedRealDevices(applicationContext)
                 .map { it.friendlyName ?: "Unknown" }
             
+            stateMutex.withLock {
+                connectedDeviceNames = initialDevices
+            }
+
             updateNotification()
-            
-            sendCreatedBroadcast(connectedDeviceNames)
-            
-            Log.i(TAG, "Listening for events (${connectedDeviceNames.size} device(s))")
-            
-            suspendCancellableCoroutine<Nothing> { continuation ->
+            sendCreatedBroadcast(initialDevices)
+
+            Log.i(TAG, "Listening for events (${initialDevices.size} device(s))")
+
+            suspendCancellableCoroutine<Unit> { continuation ->
                 continuation.invokeOnCancellation {
                     Log.i(TAG, "Worker cancelled")
                 }
             }
-            
+
+            Result.success()
         } catch (e: CancellationException) {
             Log.i(TAG, "Worker cancelled via exception")
             sendTerminatedBroadcast("Worker cancelled")
@@ -120,16 +147,16 @@ class ConnectIQQueryWorker(
             connectIQService.setDeviceChangeCallback(null)
         }
     }
-    
-    private fun updateNotification() {
+
+    private suspend fun updateNotification() {
         val notification = buildNotification()
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
-    
+
     private fun parseMessage(payload: String, deviceName: String): String {
         val parts = payload.split("|")
         if (parts.size < 4) return "Message from $deviceName"
-        
+
         val event = when (parts[0]) {
             "STARTED", "ACTIVITY_STARTED" -> "Started"
             "STOPPED", "ACTIVITY_STOPPED" -> "Stopped"
@@ -137,29 +164,28 @@ class ConnectIQQueryWorker(
         }
         return "$event ${parts[2]}"
     }
-    
+
     private fun formatTime(timestamp: Long): String {
         return SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(timestamp))
     }
-    
-    private fun createForegroundInfo(): ForegroundInfo {
+
+    private suspend fun createForegroundInfo(): ForegroundInfo {
         createNotificationChannel()
         val notification = buildNotification()
-        
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ForegroundInfo(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
             ForegroundInfo(NOTIFICATION_ID, notification)
         }
     }
-    
-    private fun buildNotification(): android.app.Notification {
+
+    private suspend fun buildNotification(): android.app.Notification {
         val openIntent = Intent(applicationContext, MainActivity::class.java)
         val openPendingIntent = PendingIntent.getActivity(
             applicationContext, 0, openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        
+
         val exitIntent = Intent(ActivityStatusCheckReceiver.ACTION_TERMINATE).apply {
             setClass(applicationContext, ActivityStatusCheckReceiver::class.java)
         }
@@ -167,10 +193,13 @@ class ConnectIQQueryWorker(
             applicationContext, 1, exitIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        
+
+        val contentText = stateMutex.withLock { buildContentText() }
+        val bigText = stateMutex.withLock { buildBigText() }
+
         return NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setContentTitle("Garmin Activity Listener")
-            .setContentText(buildContentText())
+            .setContentText(contentText)
             .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setColor(0xFF4CAF50.toInt())
             .setOngoing(true)
@@ -178,12 +207,12 @@ class ConnectIQQueryWorker(
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(openPendingIntent)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(buildBigText()))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
             .addAction(android.R.drawable.ic_menu_view, "Open", openPendingIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Exit", exitPendingIntent)
             .build()
     }
-    
+
     private fun buildContentText(): String {
         return when {
             connectedDeviceNames.isEmpty() -> "Waiting for devices..."
@@ -191,14 +220,14 @@ class ConnectIQQueryWorker(
             else -> "${connectedDeviceNames.size} device(s) connected"
         }
     }
-    
+
     private fun buildBigText(): String {
         val sb = StringBuilder()
         if (connectedDeviceNames.isEmpty()) {
             sb.append("Devices: None\n")
         } else {
             sb.append("Devices:\n")
-            connectedDeviceNames.forEach { sb.append("  - $it\n") }
+            connectedDeviceNames.forEach { sb.append(" - $it\n") }
         }
         if (lastMessage != null && lastMessageTime > 0) {
             sb.append("\nLast: $lastMessage\n${formatTime(lastMessageTime)}")
@@ -207,7 +236,7 @@ class ConnectIQQueryWorker(
         }
         return sb.toString()
     }
-    
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -222,7 +251,7 @@ class ConnectIQQueryWorker(
             notificationManager.createNotificationChannel(channel)
         }
     }
-    
+
     private fun sendCreatedBroadcast(deviceNames: List<String>) {
         try {
             val devicesString = deviceNames.joinToString("/")
@@ -232,15 +261,13 @@ class ConnectIQQueryWorker(
                 putExtra("timestamp", System.currentTimeMillis())
                 putExtra("devices", devicesString)
             }
-            
             applicationContext.sendBroadcast(intent)
             Log.i(TAG, "Created broadcast sent with ${deviceNames.size} device(s): $devicesString")
-            
         } catch (e: Exception) {
             Log.e(TAG, "Created broadcast failed", e)
         }
     }
-    
+
     private fun sendTerminatedBroadcast(reason: String) {
         try {
             val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
@@ -248,10 +275,8 @@ class ConnectIQQueryWorker(
                 putExtra("type", "Terminated")
                 putExtra("reason", reason)
             }
-            
             applicationContext.sendBroadcast(intent)
             Log.i(TAG, "Terminated broadcast sent: $reason")
-            
         } catch (e: Exception) {
             Log.e(TAG, "Terminated broadcast failed", e)
         }

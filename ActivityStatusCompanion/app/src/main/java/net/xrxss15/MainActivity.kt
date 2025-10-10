@@ -8,7 +8,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -27,6 +26,7 @@ import androidx.work.WorkManager
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.system.exitProcess
 
 class MainActivity : Activity() {
 
@@ -39,14 +39,10 @@ class MainActivity : Activity() {
     private lateinit var clearBtn: Button
     private lateinit var exitBtn: Button
     private lateinit var hideBtn: Button
-    
     private val handler = Handler(Looper.getMainLooper())
     private var messageReceiver: BroadcastReceiver? = null
     private val connectIQService = ConnectIQService.getInstance()
     private var batteryUpdateRunnable: Runnable? = null
-    
-    private val logBuffer = mutableListOf<String>()
-    private val maxLogLines = 100
 
     companion object {
         private const val TAG = "MainActivity"
@@ -54,53 +50,43 @@ class MainActivity : Activity() {
         private const val BATTERY_UPDATE_INTERVAL_MS = 30_000L
         private const val STATUS_UPDATE_DELAY_MS = 500L
         private const val STATUS_UPDATE_INTERVAL_MS = 1_000L
-        private const val PREFS_NAME = "GarminActivityListener"
-        private const val PREF_LOG = "saved_log"
-    }
 
-    private fun ts(): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
-    
-    private fun formatTimestamp(timestampMillis: Long): String {
-        return SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault()).format(Date(timestampMillis))
-    }
-    
-    private fun formatDuration(seconds: Int): String {
-        val hours = seconds / 3600
-        val minutes = (seconds % 3600) / 60
-        val secs = seconds % 60
-        return String.format("%02d:%02d:%02d", hours, minutes, secs)
+        // Thread-safe date formatters
+        @JvmStatic
+        private fun ts(): String {
+            return SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
+        }
+
+        @JvmStatic
+        private fun formatTimestamp(timestampMillis: Long): String {
+            return SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault()).format(Date(timestampMillis))
+        }
+
+        @JvmStatic
+        private fun formatDuration(seconds: Int): String {
+            val hours = seconds / 3600
+            val minutes = (seconds % 3600) / 60
+            val secs = seconds % 60
+            return String.format("%02d:%02d:%02d", hours, minutes, secs)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         createUI()
         registerBroadcastReceiver()
-        
-        // Restore log from previous session
-        restoreLog()
-
-        // Check if worker is already running (app reopened after swipe-away)
-        if (isListenerRunning()) {
-            appendLog("[${ts()}] App reopened (worker still running)")
-            updateServiceStatus()
-            updateBatteryStats()
+        appendLog("Garmin Activity Listener")
+        if (!hasRequiredPermissions()) {
+            requestRequiredPermissions()
         } else {
-            appendLog("Garmin Activity Listener")
-            
-            if (!hasRequiredPermissions()) {
-                requestRequiredPermissions()
-            } else {
-                initializeAndStart()
-            }
+            initializeAndStart()
         }
 
         updateServiceStatus()
-        updateBatteryStats()
-        
+        updateBatteryOptimizationStatus()
         batteryUpdateRunnable = object : Runnable {
             override fun run() {
-                updateBatteryStats()
+                updateBatteryOptimizationStatus()
                 handler.postDelayed(this, BATTERY_UPDATE_INTERVAL_MS)
             }
         }
@@ -110,23 +96,24 @@ class MainActivity : Activity() {
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         setIntent(intent)
-        
         appendLog("[${ts()}] App reopened")
         updateServiceStatus()
     }
 
     private fun initializeAndStart() {
+        if (isListenerRunning()) {
+            appendLog("[${ts()}] Worker already running - skipping SDK init")
+            return
+        }
+
         appendLog("[${ts()}] Initializing ConnectIQ SDK...")
-        
         connectIQService.initializeSdkIfNeeded(this) {
             handler.post {
                 appendLog("[${ts()}] SDK initialized successfully")
-                
                 if (!isBatteryOptimizationDisabled()) {
                     appendLog("Battery optimization is enabled")
                     appendLog("Press 'Battery Settings' to allow background running")
                 }
-                
                 if (!isListenerRunning()) {
                     startWorker()
                 } else {
@@ -138,53 +125,32 @@ class MainActivity : Activity() {
 
     private fun startWorker() {
         appendLog("[${ts()}] Starting background worker...")
-        
         val constraints = Constraints.Builder()
             .setRequiresBatteryNotLow(false)
             .setRequiresCharging(false)
             .setRequiresDeviceIdle(false)
             .build()
-        
         val workRequest = OneTimeWorkRequestBuilder<ConnectIQQueryWorker>()
             .setConstraints(constraints)
             .build()
-        
+
         WorkManager.getInstance(this).enqueueUniqueWork(
             "garmin_listener",
             ExistingWorkPolicy.KEEP,
             workRequest
         )
-        
+
         handler.postDelayed({
             updateServiceStatus()
         }, STATUS_UPDATE_INTERVAL_MS)
     }
 
-    private fun updateBatteryStats() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            try {
-                val batteryManager = getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
-                if (batteryManager == null) {
-                    batteryText.text = "Battery stats unavailable"
-                    return
-                }
-                
-                val batteryPct = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-                
-                val stats = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    "Battery: $batteryPct% | App usage: Check system battery settings"
-                } else {
-                    "Battery: $batteryPct%"
-                }
-                
-                batteryText.text = stats
-                
-            } catch (e: Exception) {
-                batteryText.text = "Battery stats unavailable"
-                Log.e(TAG, "Failed to get battery stats: ${e.message}")
-            }
+    private fun updateBatteryOptimizationStatus() {
+        val optimizationDisabled = isBatteryOptimizationDisabled()
+        batteryText.text = if (optimizationDisabled) {
+            "Battery optimization: Disabled ✓"
         } else {
-            batteryText.text = "Battery stats not supported"
+            "Battery optimization: Enabled (may affect background)"
         }
     }
 
@@ -192,39 +158,33 @@ class MainActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(16, 16, 16, 16)
-
             addView(TextView(this@MainActivity).apply {
                 text = "Garmin Activity Listener"
                 textSize = 16f
                 setTypeface(null, android.graphics.Typeface.BOLD)
             })
-
             statusText = TextView(this@MainActivity).apply {
                 text = "Status: Initializing..."
                 textSize = 14f
                 setPadding(0, 8, 0, 0)
             }
             addView(statusText)
-            
             batteryText = TextView(this@MainActivity).apply {
-                text = "Battery: --"
+                text = "Battery optimization: Checking..."
                 textSize = 14f
                 setPadding(0, 4, 0, 8)
             }
             addView(batteryText)
-
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 8, 0, 8)
-                
                 batteryBtn = Button(this@MainActivity).apply {
-                    text = "Battery"
+                    text = "Battery Settings"
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
                         requestBatteryOptimizationExemption()
                     }
                 }
-                
                 hideBtn = Button(this@MainActivity).apply {
                     text = "Hide"
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -233,7 +193,6 @@ class MainActivity : Activity() {
                         moveTaskToBack(true)
                     }
                 }
-                
                 exitBtn = Button(this@MainActivity).apply {
                     text = "Exit"
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -241,16 +200,13 @@ class MainActivity : Activity() {
                         exitAppCompletely()
                     }
                 }
-                
                 addView(batteryBtn)
                 addView(hideBtn)
                 addView(exitBtn)
             })
-
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 0, 0, 8)
-                
                 copyBtn = Button(this@MainActivity).apply {
                     text = "Copy Log"
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -260,19 +216,17 @@ class MainActivity : Activity() {
                         Toast.makeText(this@MainActivity, "Log copied", Toast.LENGTH_SHORT).show()
                     }
                 }
-                
                 clearBtn = Button(this@MainActivity).apply {
                     text = "Clear Log"
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                    setOnClickListener { 
-                        clearLog()
+                    setOnClickListener {
+                        logView.text = ""
+                        appendLog("Garmin Activity Listener")
                     }
                 }
-                
                 addView(copyBtn)
                 addView(clearBtn)
             })
-
             scroll = ScrollView(this@MainActivity)
             logView = TextView(this@MainActivity).apply {
                 textSize = 12f
@@ -284,30 +238,23 @@ class MainActivity : Activity() {
             scroll.addView(logView)
             addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         }
-        
+
         setContentView(root)
     }
 
     private fun exitAppCompletely() {
         appendLog("[${ts()}] Stopping listener and terminating app...")
-        
         // Cancel worker
         WorkManager.getInstance(this).cancelUniqueWork("garmin_listener")
-        
         // Wait for worker to stop, then kill everything
         var checkCount = 0
         val checkRunnable = object : Runnable {
             override fun run() {
                 checkCount++
                 val running = isListenerRunning()
-                
                 if (!running || checkCount >= 20) {
                     // Worker stopped or timeout
                     ConnectIQService.resetInstance()
-                    
-                    // Clear saved log
-                    clearSavedLog()
-                    
                     // Send termination broadcast
                     val intent = Intent("net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT").apply {
                         addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
@@ -315,7 +262,6 @@ class MainActivity : Activity() {
                         putExtra("reason", "User exit")
                     }
                     sendBroadcast(intent)
-                    
                     // Kill the process completely
                     finishAffinity()
                     android.os.Process.killProcess(android.os.Process.myPid())
@@ -377,26 +323,11 @@ class MainActivity : Activity() {
     private fun registerBroadcastReceiver() {
         messageReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                when (intent?.action) {
-                    "net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT" -> {
-                        val type = intent.getStringExtra("type") ?: return
-                        handleGarminEvent(type, intent)
-                    }
-                    ActivityStatusCheckReceiver.ACTION_CLOSE_GUI -> {
-                        // Hide button behavior: move to background
-                        Log.i(TAG, "CLOSE_GUI broadcast received, hiding GUI")
-                        appendLog("[${ts()}] Hiding GUI (worker keeps running)")
-                        moveTaskToBack(true)
-                    }
-                }
+                val type = intent?.getStringExtra("type") ?: return
+                handleGarminEvent(type, intent)
             }
         }
-        
-        val filter = IntentFilter().apply {
-            addAction("net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT")
-            addAction(ActivityStatusCheckReceiver.ACTION_CLOSE_GUI)
-        }
-        
+        val filter = IntentFilter("net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(messageReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
@@ -411,7 +342,6 @@ class MainActivity : Activity() {
                 val time = intent.getLongExtra("time", 0)
                 val activity = intent.getStringExtra("activity") ?: "Unknown"
                 val duration = intent.getIntExtra("duration", 0)
-                
                 appendLog("")
                 appendLog("========================================")
                 appendLog("ACTIVITY EVENT: $type")
@@ -424,7 +354,6 @@ class MainActivity : Activity() {
                 appendLog("========================================")
                 appendLog("")
             }
-            
             "DeviceList" -> {
                 val devices = intent.getStringExtra("devices") ?: ""
                 val deviceList = if (devices.isEmpty()) emptyList() else devices.split("/")
@@ -433,7 +362,6 @@ class MainActivity : Activity() {
                     appendLog("[${ts()}]   - $it")
                 }
             }
-            
             "Created" -> {
                 val devices = intent.getStringExtra("devices") ?: ""
                 val deviceList = if (devices.isEmpty()) emptyList() else devices.split("/")
@@ -443,74 +371,18 @@ class MainActivity : Activity() {
                     appendLog("[${ts()}]   - $it")
                 }
             }
-            
             "Terminated" -> {
                 val reason = intent.getStringExtra("reason") ?: "Unknown"
                 appendLog("[${ts()}] WORKER STOPPED: $reason")
             }
         }
-        
         updateServiceStatus()
     }
 
     private fun appendLog(line: String) {
         handler.post {
-            // Add to buffer
-            logBuffer.add(line)
-            
-            // Keep only last maxLogLines entries
-            if (logBuffer.size > maxLogLines) {
-                logBuffer.removeAt(0)
-            }
-            
-            // Update display
             logView.append("$line\n")
             scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
-            
-            // Save to preferences
-            saveLog()
-        }
-    }
-    
-    private fun clearLog() {
-        logBuffer.clear()
-        logView.text = ""
-        appendLog("Garmin Activity Listener")
-    }
-    
-    private fun saveLog() {
-        try {
-            val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            prefs.edit().putString(PREF_LOG, logBuffer.joinToString("\n")).apply()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to save log: ${e.message}")
-        }
-    }
-    
-    private fun restoreLog() {
-        try {
-            val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val savedLog = prefs.getString(PREF_LOG, null)
-            
-            if (savedLog != null) {
-                logBuffer.clear()
-                logBuffer.addAll(savedLog.split("\n"))
-                
-                // Restore to display
-                logView.text = savedLog + "\n"
-                scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to restore log: ${e.message}")
-        }
-    }
-    
-    private fun clearSavedLog() {
-        try {
-            val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            prefs.edit().remove(PREF_LOG).apply()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to clear saved log: ${e.message}")
         }
     }
 
@@ -553,12 +425,14 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         updateServiceStatus()
-        updateBatteryStats()
+        updateBatteryOptimizationStatus()
     }
-    
+
     override fun onDestroy() {
+        // Clean up handler callbacks first
         batteryUpdateRunnable?.let { handler.removeCallbacks(it) }
         batteryUpdateRunnable = null
+        handler.removeCallbacksAndMessages(null)
         
         super.onDestroy()
         
@@ -566,6 +440,7 @@ class MainActivity : Activity() {
             try {
                 unregisterReceiver(it)
             } catch (e: IllegalArgumentException) {
+                // Already unregistered
             }
         }
         messageReceiver = null

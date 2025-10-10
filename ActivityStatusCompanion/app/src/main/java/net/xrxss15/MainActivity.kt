@@ -41,14 +41,10 @@ class MainActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private var messageReceiver: BroadcastReceiver? = null
     private val connectIQService = ConnectIQService.getInstance()
-    private var batteryUpdateRunnable: Runnable? = null
 
     companion object {
         private const val TAG = "MainActivity"
         private const val PERMISSION_REQUEST_CODE = 100
-        private const val BATTERY_UPDATE_INTERVAL_MS = 30_000L
-        private const val STATUS_UPDATE_DELAY_MS = 500L
-        private const val STATUS_UPDATE_INTERVAL_MS = 1_000L
 
         @JvmStatic
         private fun ts(): String {
@@ -74,21 +70,16 @@ class MainActivity : Activity() {
         createUI()
         registerBroadcastReceiver()
         appendLog("Garmin Activity Listener")
+        
+        // Update UI once on creation
+        updateServiceStatus()
+        updateBatteryOptimizationStatus()
+        
         if (!hasRequiredPermissions()) {
             requestRequiredPermissions()
         } else {
             initializeAndStart()
         }
-
-        updateServiceStatus()
-        updateBatteryOptimizationStatus()
-        batteryUpdateRunnable = object : Runnable {
-            override fun run() {
-                updateBatteryOptimizationStatus()
-                handler.postDelayed(this, BATTERY_UPDATE_INTERVAL_MS)
-            }
-        }
-        handler.postDelayed(batteryUpdateRunnable!!, BATTERY_UPDATE_INTERVAL_MS)
     }
 
     override fun onNewIntent(intent: Intent?) {
@@ -96,6 +87,14 @@ class MainActivity : Activity() {
         setIntent(intent)
         appendLog("[${ts()}] App reopened")
         updateServiceStatus()
+        updateBatteryOptimizationStatus()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Update UI only when activity becomes visible
+        updateServiceStatus()
+        updateBatteryOptimizationStatus()
     }
 
     private fun initializeAndStart() {
@@ -137,10 +136,6 @@ class MainActivity : Activity() {
             ExistingWorkPolicy.KEEP,
             workRequest
         )
-
-        handler.postDelayed({
-            updateServiceStatus()
-        }, STATUS_UPDATE_INTERVAL_MS)
     }
 
     private fun updateBatteryOptimizationStatus() {
@@ -181,6 +176,10 @@ class MainActivity : Activity() {
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
                         requestBatteryOptimizationExemption()
+                        // Update status after button press
+                        handler.postDelayed({
+                            updateBatteryOptimizationStatus()
+                        }, 500)
                     }
                 }
                 hideBtn = Button(this@MainActivity).apply {
@@ -278,14 +277,12 @@ class MainActivity : Activity() {
     }
 
     private fun updateServiceStatus() {
-        handler.postDelayed({
-            val running = isListenerRunning()
-            statusText.text = if (running) {
-                "Status: Listener Active"
-            } else {
-                "Status: Listener Inactive"
-            }
-        }, STATUS_UPDATE_DELAY_MS)
+        val running = isListenerRunning()
+        statusText.text = if (running) {
+            "Status: Listener Active"
+        } else {
+            "Status: Listener Inactive"
+        }
     }
 
     private fun isBatteryOptimizationDisabled(): Boolean {
@@ -363,13 +360,21 @@ class MainActivity : Activity() {
                 deviceList.forEach {
                     appendLog("[${ts()}]   - $it")
                 }
+                // Update status when worker starts
+                updateServiceStatus()
             }
             "Terminated" -> {
                 val reason = intent.getStringExtra("reason") ?: "Unknown"
                 appendLog("[${ts()}] WORKER STOPPED: $reason")
+                // Update status when worker stops
+                updateServiceStatus()
+            }
+            "CloseGUI" -> {
+                // Handle close GUI request from receiver
+                appendLog("[${ts()}] Closing GUI via Tasker")
+                finish()
             }
         }
-        updateServiceStatus()
     }
 
     private fun appendLog(line: String) {
@@ -415,15 +420,8 @@ class MainActivity : Activity() {
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        updateServiceStatus()
-        updateBatteryOptimizationStatus()
-    }
-
     override fun onDestroy() {
-        batteryUpdateRunnable?.let { handler.removeCallbacks(it) }
-        batteryUpdateRunnable = null
+        // Clean up handler callbacks
         handler.removeCallbacksAndMessages(null)
         
         super.onDestroy()

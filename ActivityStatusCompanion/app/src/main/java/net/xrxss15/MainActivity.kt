@@ -120,19 +120,26 @@ class MainActivity : Activity() {
     }
 
     private fun initializeAndStart() {
-        if (isListenerRunning()) {
-            appendLog("[${ts()}] Worker already running")
-            return
+        // Always initialize SDK in MainActivity
+        appendLog("[${ts()}] Initializing ConnectIQ SDK...")
+        
+        connectIQService.initializeSdkIfNeeded(this) {
+            handler.post {
+                appendLog("[${ts()}] SDK initialized successfully")
+                
+                if (!isBatteryOptimizationDisabled()) {
+                    appendLog("Battery optimization is enabled")
+                    appendLog("Press 'Battery Settings' to allow background running")
+                }
+                
+                // Start worker after SDK is ready
+                if (!isListenerRunning()) {
+                    startWorker()
+                } else {
+                    appendLog("[${ts()}] Worker already running")
+                }
+            }
         }
-        
-        appendLog("[${ts()}] Starting background worker...")
-        
-        if (!isBatteryOptimizationDisabled()) {
-            appendLog("Battery optimization is enabled")
-            appendLog("Press 'Battery Settings' to allow background running")
-        }
-        
-        startWorker()
     }
 
     private fun startWorker() {
@@ -471,14 +478,6 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        
-        if (hasRequiredPermissions() && connectIQService.isInitialized()) {
-            if (!isListenerRunning()) {
-                appendLog("[${ts()}] Worker stopped, restarting...")
-                startWorker()
-            }
-        }
-        
         updateServiceStatus()
         updateBatteryStats()
     }

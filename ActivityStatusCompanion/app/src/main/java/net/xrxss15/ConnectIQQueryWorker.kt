@@ -14,13 +14,12 @@ import androidx.work.WorkerParameters
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withTimeoutOrNull
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.coroutines.resume
 
 class ConnectIQQueryWorker(
     appContext: Context,
@@ -31,7 +30,8 @@ class ConnectIQQueryWorker(
         private const val TAG = "GarminActivityListener.Worker"
         private const val NOTIFICATION_ID = 1001
         private const val CHANNEL_ID = "garmin_listener_channel"
-        private const val SDK_INIT_TIMEOUT_MS = 30_000L
+        private const val SDK_INIT_WAIT_MS = 30_000L
+        private const val SDK_CHECK_INTERVAL_MS = 500L
     }
 
     private val connectIQService = ConnectIQService.getInstance()
@@ -49,28 +49,23 @@ class ConnectIQQueryWorker(
             setForeground(createForegroundInfo())
             Log.i(TAG, "Foreground service started")
             
-            // Initialize SDK if needed
-            if (!connectIQService.isInitialized()) {
-                Log.i(TAG, "SDK not initialized, initializing now...")
-                
-                val initialized = withTimeoutOrNull(SDK_INIT_TIMEOUT_MS) {
-                    suspendCancellableCoroutine { continuation ->
-                        connectIQService.initializeSdkIfNeeded(applicationContext) {
-                            continuation.resume(Unit)
-                        }
-                    }
-                }
-                
-                if (initialized == null) {
-                    Log.e(TAG, "SDK initialization timeout after ${SDK_INIT_TIMEOUT_MS}ms")
-                    sendTerminatedBroadcast("SDK initialization timeout")
-                    return Result.failure()
-                }
-                
-                Log.i(TAG, "SDK initialized successfully")
-            } else {
-                Log.i(TAG, "SDK already initialized")
+            // Wait for SDK to be initialized by MainActivity
+            Log.i(TAG, "Waiting for SDK initialization...")
+            var attempts = 0
+            val maxAttempts = (SDK_INIT_WAIT_MS / SDK_CHECK_INTERVAL_MS).toInt()
+            
+            while (!connectIQService.isInitialized() && attempts < maxAttempts) {
+                delay(SDK_CHECK_INTERVAL_MS)
+                attempts++
             }
+            
+            if (!connectIQService.isInitialized()) {
+                Log.e(TAG, "SDK not initialized after ${SDK_INIT_WAIT_MS}ms")
+                sendTerminatedBroadcast("SDK not initialized by MainActivity")
+                return Result.failure()
+            }
+            
+            Log.i(TAG, "SDK confirmed initialized")
             
             connectIQService.setMessageCallback { payload, deviceName, timestamp ->
                 lastMessage = parseMessage(payload, deviceName)

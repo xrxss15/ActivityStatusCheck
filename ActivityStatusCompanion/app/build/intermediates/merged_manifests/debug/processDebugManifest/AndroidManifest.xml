@@ -50,6 +50,14 @@
             </intent-filter>
         </activity>
 
+        <!-- Invisible activity for SDK recovery -->
+        <activity
+            android:name="net.xrxss15.SdkInitActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <receiver
             android:name="net.xrxss15.ActivityStatusCheckReceiver"
             android:exported="true" >

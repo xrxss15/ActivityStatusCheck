@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import androidx.core.content.ContextCompat
 import com.garmin.android.connectiq.ConnectIQ
 import com.garmin.android.connectiq.ConnectIQ.ConnectIQListener
@@ -55,6 +57,7 @@ class ConnectIQService private constructor() {
     private var messageCallback: ((String, String, Long) -> Unit)? = null
     private var deviceChangeCallback: (() -> Unit)? = null
     private var appContext: Context? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
     
     @Volatile
     private var isReinitializing = false
@@ -79,11 +82,10 @@ class ConnectIQService private constructor() {
             override fun onSdkReady() {
                 log("SDK initialized successfully")
                 
-                Thread {
-                    Thread.sleep(DISCOVERY_DELAY_MS)
+                mainHandler.postDelayed({
                     refreshAndRegisterDevices()
                     onReady?.invoke()
-                }.start()
+                }, DISCOVERY_DELAY_MS)
             }
 
             override fun onInitializeError(status: IQSdkErrorStatus?) {
@@ -111,17 +113,30 @@ class ConnectIQService private constructor() {
                     isReinitializing = true
                 }
                 
-                log("SDK service binding lost, reinitializing...")
+                log("SDK service binding lost, starting SdkInitActivity for recovery")
                 
                 connectIQ = null
                 
-                initializeSdkIfNeeded(context) {
+                // Start invisible SdkInitActivity to reinitialize SDK
+                try {
+                    val intent = Intent(context, SdkInitActivity::class.java).apply {
+                        action = SdkInitActivity.ACTION_INIT_SDK
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
+                    
+                    // Reset flag after delay to allow retry if needed
+                    mainHandler.postDelayed({
+                        synchronized(this) {
+                            isReinitializing = false
+                        }
+                    }, 5000)
+                    
+                } catch (e: Exception) {
+                    logError("Failed to start SdkInitActivity: ${e.message}")
                     synchronized(this) {
                         isReinitializing = false
                     }
-                    log("SDK reinitialized successfully after service binding loss")
-                    
-                    refreshAndRegisterDevices()
                 }
                 
                 return false
@@ -181,7 +196,6 @@ class ConnectIQService private constructor() {
                     
                     when (status) {
                         IQDevice.IQDeviceStatus.CONNECTED -> {
-                            // Test SDK health after CONNECTED event
                             if (ctx != null && !testAndRecoverSdk(ctx)) {
                                 log("SDK recovery initiated after CONNECTED event")
                             } else {

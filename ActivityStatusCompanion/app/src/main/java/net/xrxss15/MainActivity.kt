@@ -19,16 +19,15 @@ import android.util.Log
 import android.widget.*
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/**
- * Main activity for Garmin Activity Listener.
- * Provides UI for monitoring Garmin watch activity events and controls background worker.
- */
 class MainActivity : Activity() {
 
     private lateinit var logView: TextView
@@ -73,7 +72,6 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Handle close intent
         if (intent.action == ACTION_CLOSE_GUI) {
             finish()
             return
@@ -111,15 +109,10 @@ class MainActivity : Activity() {
         }
     }
 
-    /**
-     * Initializes ConnectIQ SDK and starts background worker if needed.
-     */
     private fun initializeAndStart() {
-        // Check if worker is already running
         if (isListenerRunning()) {
             appendLog("[${ts()}] Worker already running")
             
-            // Initialize SDK if needed (but don't restart worker)
             if (!connectIQService.isInitialized()) {
                 appendLog("[${ts()}] Initializing ConnectIQ SDK...")
                 connectIQService.initializeSdkIfNeeded(this) {
@@ -147,25 +140,30 @@ class MainActivity : Activity() {
         }
     }
 
-    /**
-     * Starts the background worker via broadcast intent.
-     */
     private fun startWorker() {
         appendLog("[${ts()}] Starting background worker...")
         
-        val intent = Intent(ActivityStatusCheckReceiver.ACTION_START_BACKGROUND).apply {
-            setPackage(packageName)
-        }
-        sendBroadcast(intent)
+        val constraints = Constraints.Builder()
+            .setRequiresBatteryNotLow(false)
+            .setRequiresCharging(false)
+            .setRequiresDeviceIdle(false)
+            .build()
+        
+        val workRequest = OneTimeWorkRequestBuilder<ConnectIQQueryWorker>()
+            .setConstraints(constraints)
+            .build()
+        
+        WorkManager.getInstance(this).enqueueUniqueWork(
+            "garmin_listener",
+            ExistingWorkPolicy.KEEP,
+            workRequest
+        )
         
         handler.postDelayed({
             updateServiceStatus()
         }, STATUS_UPDATE_INTERVAL_MS)
     }
 
-    /**
-     * Updates battery statistics display.
-     */
     private fun updateBatteryStats() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             try {
@@ -296,9 +294,6 @@ class MainActivity : Activity() {
         setContentView(root)
     }
 
-    /**
-     * Sends broadcast to terminate the entire app.
-     */
     private fun exitApp() {
         val intent = Intent(ActivityStatusCheckReceiver.ACTION_TERMINATE).apply {
             setPackage(packageName)
@@ -307,9 +302,6 @@ class MainActivity : Activity() {
         sendBroadcast(intent)
     }
 
-    /**
-     * Checks if background worker is currently running.
-     */
     private fun isListenerRunning(): Boolean {
         return try {
             val workManager = WorkManager.getInstance(applicationContext)
@@ -321,9 +313,6 @@ class MainActivity : Activity() {
         }
     }
 
-    /**
-     * Updates the service status display.
-     */
     private fun updateServiceStatus() {
         handler.postDelayed({
             val running = isListenerRunning()
@@ -335,9 +324,6 @@ class MainActivity : Activity() {
         }, STATUS_UPDATE_DELAY_MS)
     }
 
-    /**
-     * Checks if battery optimization is disabled for this app.
-     */
     private fun isBatteryOptimizationDisabled(): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
@@ -346,9 +332,6 @@ class MainActivity : Activity() {
         return true
     }
 
-    /**
-     * Opens battery optimization settings to request exemption.
-     */
     private fun requestBatteryOptimizationExemption() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (!isBatteryOptimizationDisabled()) {
@@ -366,9 +349,6 @@ class MainActivity : Activity() {
         }
     }
 
-    /**
-     * Registers broadcast receiver for app events.
-     */
     private fun registerBroadcastReceiver() {
         messageReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
@@ -396,9 +376,6 @@ class MainActivity : Activity() {
         }
     }
 
-    /**
-     * Handles Garmin activity events received via broadcast.
-     */
     private fun handleGarminEvent(type: String?, intent: Intent) {
         when (type) {
             "Started", "Stopped" -> {
@@ -449,9 +426,6 @@ class MainActivity : Activity() {
         updateServiceStatus()
     }
 
-    /**
-     * Appends a line to the log display.
-     */
     private fun appendLog(line: String) {
         handler.post {
             logView.append("$line\n")
@@ -459,9 +433,6 @@ class MainActivity : Activity() {
         }
     }
 
-    /**
-     * Checks if all required permissions are granted.
-     */
     private fun hasRequiredPermissions(): Boolean {
         val needs = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
         if (Build.VERSION.SDK_INT >= 31) {
@@ -474,9 +445,6 @@ class MainActivity : Activity() {
         return needs.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }
     }
 
-    /**
-     * Requests required runtime permissions.
-     */
     private fun requestRequiredPermissions() {
         val perms = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
         if (Build.VERSION.SDK_INT >= 31) {
@@ -525,7 +493,6 @@ class MainActivity : Activity() {
             try {
                 unregisterReceiver(it)
             } catch (e: IllegalArgumentException) {
-                // Already unregistered
             }
         }
         messageReceiver = null

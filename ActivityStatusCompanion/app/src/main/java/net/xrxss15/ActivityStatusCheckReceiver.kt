@@ -25,18 +25,21 @@ import androidx.work.WorkInfo
  *    - Kills the app process completely
  *    - Next app launch will be a fresh start
  *    - Use case: User wants to completely exit the app
+ *    - EQUIVALENT TO: Exit button
  * 
  * 2. ACTION_OPEN_GUI (net.xrxss15.OPEN_GUI)
  *    - Opens the MainActivity GUI
  *    - If worker is running, GUI reconnects to it
  *    - If worker is not running, user can start it manually
  *    - Use case: User wants to view logs or status
+ *    - EQUIVALENT TO: Clicking app icon
  * 
  * 3. ACTION_CLOSE_GUI (net.xrxss15.CLOSE_GUI)
  *    - Closes the MainActivity GUI
  *    - Worker continues running in background
  *    - Listening for activity events continues
  *    - Use case: Hide GUI but keep monitoring
+ *    - EQUIVALENT TO: Hide button
  * 
  * 4. ACTION_EVENT (net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT)
  *    - Internal event broadcast (not meant for external use)
@@ -190,6 +193,14 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
                             // Reset SDK
                             ConnectIQService.resetInstance()
                             
+                            // Clear saved log
+                            try {
+                                val prefs = context.getSharedPreferences("GarminActivityListener", Context.MODE_PRIVATE)
+                                prefs.edit().remove("saved_log").apply()
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Failed to clear log: ${e.message}")
+                            }
+                            
                             // Send terminated broadcast
                             val terminatedIntent = Intent(ACTION_EVENT).apply {
                                 addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
@@ -217,13 +228,14 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
             }
             
             ACTION_CLOSE_GUI -> {
-                Log.i(TAG, "CLOSE_GUI received - closing GUI only")
-                // Move app to background without stopping worker
-                val moveBackIntent = Intent(Intent.ACTION_MAIN).apply {
-                    addCategory(Intent.CATEGORY_HOME)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                Log.i(TAG, "CLOSE_GUI received - hiding GUI via broadcast")
+                
+                // Send broadcast to MainActivity to hide itself
+                // This mimics the Hide button behavior exactly
+                val hideIntent = Intent(ACTION_CLOSE_GUI).apply {
+                    setPackage(context.packageName)
                 }
-                context.startActivity(moveBackIntent)
+                context.sendBroadcast(hideIntent)
             }
         }
     }

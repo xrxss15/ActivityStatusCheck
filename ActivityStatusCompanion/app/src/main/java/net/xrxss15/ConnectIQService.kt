@@ -45,6 +45,7 @@ class ConnectIQService private constructor() {
                     it.knownDevices.clear()
                     it.messageCallback = null
                     it.deviceChangeCallback = null
+                    it.sdkReady = false
                 }
                 instance = null
             }
@@ -60,6 +61,9 @@ class ConnectIQService private constructor() {
     private val mainHandler = Handler(Looper.getMainLooper())
     
     @Volatile
+    private var sdkReady = false
+    
+    @Volatile
     private var isReinitializing = false
 
     private fun log(msg: String) = android.util.Log.i(TAG, msg)
@@ -68,8 +72,8 @@ class ConnectIQService private constructor() {
     fun initializeSdkIfNeeded(context: Context, onReady: (() -> Unit)? = null) {
         appContext = context.applicationContext
         
-        if (isInitialized()) {
-            log("SDK already initialized")
+        if (sdkReady) {
+            log("SDK already initialized and ready")
             onReady?.invoke()
             return
         }
@@ -81,6 +85,7 @@ class ConnectIQService private constructor() {
         connectIQ?.initialize(appContext, false, object : ConnectIQListener {
             override fun onSdkReady() {
                 log("SDK initialized successfully")
+                sdkReady = true
                 
                 mainHandler.postDelayed({
                     refreshAndRegisterDevices()
@@ -90,10 +95,12 @@ class ConnectIQService private constructor() {
 
             override fun onInitializeError(status: IQSdkErrorStatus?) {
                 logError("SDK initialization failed: $status")
+                sdkReady = false
             }
 
             override fun onSdkShutDown() {
                 log("SDK shutdown")
+                sdkReady = false
             }
         })
     }
@@ -116,6 +123,7 @@ class ConnectIQService private constructor() {
                 log("SDK service binding lost, starting SdkInitActivity for recovery")
                 
                 connectIQ = null
+                sdkReady = false
                 
                 // Start invisible SdkInitActivity to reinitialize SDK
                 try {
@@ -154,7 +162,7 @@ class ConnectIQService private constructor() {
         return needs.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
     }
 
-    fun isInitialized(): Boolean = connectIQ != null
+    fun isInitialized(): Boolean = sdkReady
 
     private fun isRealDevice(device: IQDevice): Boolean {
         return device.deviceIdentifier != KNOWN_SIMULATOR_ID &&

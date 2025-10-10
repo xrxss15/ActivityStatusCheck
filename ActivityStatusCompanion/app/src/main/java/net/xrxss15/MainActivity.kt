@@ -72,16 +72,6 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        if (intent.action == ACTION_CLOSE_GUI) {
-            val removeTask = intent.getBooleanExtra("finish_and_remove_task", false)
-            if (removeTask) {
-                finishAndRemoveTask()
-            } else {
-                finish()
-            }
-            return
-        }
-
         createUI()
         registerBroadcastReceiver()
 
@@ -109,20 +99,8 @@ class MainActivity : Activity() {
         super.onNewIntent(intent)
         setIntent(intent)
         
-        when (intent?.action) {
-            ACTION_CLOSE_GUI -> {
-                val removeTask = intent.getBooleanExtra("finish_and_remove_task", false)
-                if (removeTask) {
-                    finishAndRemoveTask()
-                } else {
-                    finish()
-                }
-            }
-            Intent.ACTION_MAIN -> {
-                appendLog("[${ts()}] App reopened")
-                updateServiceStatus()
-            }
-        }
+        appendLog("[${ts()}] App reopened")
+        updateServiceStatus()
     }
 
     private fun initializeAndStart() {
@@ -236,11 +214,11 @@ class MainActivity : Activity() {
                 }
                 
                 hideBtn = Button(this@MainActivity).apply {
-                    text = "Hide GUI"
+                    text = "Hide"
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
-                        appendLog("[${ts()}] Hiding GUI (worker keeps running)...")
-                        finish()
+                        appendLog("[${ts()}] Hiding GUI (worker keeps running)")
+                        moveTaskToBack(true)
                     }
                 }
                 
@@ -248,7 +226,7 @@ class MainActivity : Activity() {
                     text = "Exit"
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
-                        appendLog("[${ts()}] Exiting app (stopping worker)...")
+                        appendLog("[${ts()}] Stopping listener and exiting...")
                         exitApp()
                     }
                 }
@@ -301,11 +279,9 @@ class MainActivity : Activity() {
     }
 
     private fun exitApp() {
-        val intent = Intent(ActivityStatusCheckReceiver.ACTION_TERMINATE).apply {
-            setPackage(packageName)
-            setClass(this@MainActivity, ActivityStatusCheckReceiver::class.java)
-        }
-        sendBroadcast(intent)
+        WorkManager.getInstance(this).cancelUniqueWork("garmin_listener")
+        ConnectIQService.resetInstance()
+        finish()
     }
 
     private fun isListenerRunning(): Boolean {
@@ -358,27 +334,12 @@ class MainActivity : Activity() {
     private fun registerBroadcastReceiver() {
         messageReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                when (intent?.action) {
-                    ActivityStatusCheckReceiver.ACTION_EVENT -> {
-                        val type = intent.getStringExtra("type")
-                        handleGarminEvent(type, intent)
-                    }
-                    ACTION_CLOSE_GUI -> {
-                        val removeTask = intent.getBooleanExtra("finish_and_remove_task", false)
-                        if (removeTask) {
-                            finishAndRemoveTask()
-                        } else {
-                            finish()
-                        }
-                    }
-                }
+                val type = intent?.getStringExtra("type") ?: return
+                handleGarminEvent(type, intent)
             }
         }
         
-        val filter = IntentFilter().apply {
-            addAction(ActivityStatusCheckReceiver.ACTION_EVENT)
-            addAction(ACTION_CLOSE_GUI)
-        }
+        val filter = IntentFilter("net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT")
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(messageReceiver, filter, Context.RECEIVER_EXPORTED)
@@ -411,18 +372,17 @@ class MainActivity : Activity() {
             "DeviceList" -> {
                 val devices = intent.getStringExtra("devices") ?: ""
                 val deviceList = if (devices.isEmpty()) emptyList() else devices.split("/")
-                appendLog("[${ts()}] Devices updated: ${deviceList.size} device(s)")
+                appendLog("[${ts()}] Devices: ${deviceList.size} device(s)")
                 deviceList.forEach {
                     appendLog("[${ts()}]   - $it")
                 }
             }
             
             "Created" -> {
-                val timestamp = intent.getLongExtra("timestamp", 0)
                 val devices = intent.getStringExtra("devices") ?: ""
                 val deviceList = if (devices.isEmpty()) emptyList() else devices.split("/")
-                appendLog("[${ts()}] WORKER CREATED: Listener is now running")
-                appendLog("[${ts()}] Initial devices: ${deviceList.size} device(s)")
+                appendLog("[${ts()}] WORKER STARTED")
+                appendLog("[${ts()}] Devices: ${deviceList.size} device(s)")
                 deviceList.forEach {
                     appendLog("[${ts()}]   - $it")
                 }
@@ -430,7 +390,7 @@ class MainActivity : Activity() {
             
             "Terminated" -> {
                 val reason = intent.getStringExtra("reason") ?: "Unknown"
-                appendLog("[${ts()}] WORKER TERMINATED: $reason")
+                appendLog("[${ts()}] WORKER STOPPED: $reason")
             }
         }
         

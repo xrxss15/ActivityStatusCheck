@@ -39,12 +39,11 @@
             </intent-filter>
         </activity>
 
-        <!-- Broadcast Receiver for Tasker integration -->
+        <!-- Broadcast Receiver for intents -->
         <receiver
             android:name=".ActivityStatusCheckReceiver"
             android:exported="true">
             <intent-filter>
-                <action android:name="net.xrxss15.START_BACKGROUND" />
                 <action android:name="net.xrxss15.OPEN_GUI" />
                 <action android:name="net.xrxss15.CLOSE_GUI" />
                 <action android:name="net.xrxss15.TERMINATE" />

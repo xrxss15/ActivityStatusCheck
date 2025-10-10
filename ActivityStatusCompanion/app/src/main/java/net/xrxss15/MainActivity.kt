@@ -47,7 +47,6 @@ class MainActivity : Activity() {
     private var batteryUpdateRunnable: Runnable? = null
 
     companion object {
-        const val ACTION_TERMINATE_UI = "net.xrxss15.internal.TERMINATE_UI"
         const val ACTION_CLOSE_GUI = "net.xrxss15.CLOSE_GUI"
         const val ACTION_OPEN_GUI = "net.xrxss15.OPEN_GUI"
         
@@ -74,15 +73,10 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        when (intent.action) {
-            ACTION_TERMINATE_UI -> {
-                finishAndRemoveTask()
-                return
-            }
-            ACTION_CLOSE_GUI -> {
-                finish()
-                return
-            }
+        // Handle close intent
+        if (intent.action == ACTION_CLOSE_GUI) {
+            finish()
+            return
         }
 
         createUI()
@@ -112,13 +106,8 @@ class MainActivity : Activity() {
         super.onNewIntent(intent)
         setIntent(intent)
         
-        when (intent?.action) {
-            ACTION_TERMINATE_UI -> {
-                finishAndRemoveTask()
-            }
-            ACTION_CLOSE_GUI -> {
-                finish()
-            }
+        if (intent?.action == ACTION_CLOSE_GUI) {
+            finish()
         }
     }
 
@@ -126,9 +115,11 @@ class MainActivity : Activity() {
      * Initializes ConnectIQ SDK and starts background worker if needed.
      */
     private fun initializeAndStart() {
+        // Check if worker is already running
         if (isListenerRunning()) {
             appendLog("[${ts()}] Worker already running")
             
+            // Initialize SDK if needed (but don't restart worker)
             if (!connectIQService.isInitialized()) {
                 appendLog("[${ts()}] Initializing ConnectIQ SDK...")
                 connectIQService.initializeSdkIfNeeded(this) {
@@ -244,7 +235,7 @@ class MainActivity : Activity() {
                     text = "Hide GUI"
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
-                        appendLog("[${ts()}] Hiding GUI...")
+                        appendLog("[${ts()}] Hiding GUI (worker keeps running)...")
                         finish()
                     }
                 }
@@ -253,7 +244,7 @@ class MainActivity : Activity() {
                     text = "Exit"
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
-                        appendLog("[${ts()}] Exiting app...")
+                        appendLog("[${ts()}] Exiting app (stopping worker)...")
                         exitApp()
                     }
                 }
@@ -386,9 +377,6 @@ class MainActivity : Activity() {
                         val type = intent.getStringExtra("type")
                         handleGarminEvent(type, intent)
                     }
-                    ACTION_TERMINATE_UI -> {
-                        finishAndRemoveTask()
-                    }
                     ACTION_CLOSE_GUI -> {
                         finish()
                     }
@@ -398,7 +386,6 @@ class MainActivity : Activity() {
         
         val filter = IntentFilter().apply {
             addAction(ActivityStatusCheckReceiver.ACTION_EVENT)
-            addAction(ACTION_TERMINATE_UI)
             addAction(ACTION_CLOSE_GUI)
         }
         
@@ -533,17 +520,6 @@ class MainActivity : Activity() {
         batteryUpdateRunnable = null
         
         super.onDestroy()
-        
-        try {
-            val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
-                putExtra("type", "Terminated")
-                putExtra("reason", "MainActivity destroyed")
-            }
-            sendBroadcast(intent)
-            Log.i(TAG, "Terminated broadcast sent from onDestroy")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to send terminated broadcast: ${e.message}")
-        }
         
         messageReceiver?.let {
             try {

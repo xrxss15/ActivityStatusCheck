@@ -3,8 +3,10 @@ package net.xrxss15
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -34,17 +36,18 @@ class ConnectIQQueryWorker(
         private const val CHANNEL_ID = "garmin_listener_channel"
         private const val SDK_INIT_WAIT_MS = 30_000L
         private const val SDK_CHECK_INTERVAL_MS = 500L
+        private const val MAX_MESSAGE_HISTORY = 100
+        const val ACTION_REQUEST_HISTORY = "net.xrxss15.internal.REQUEST_HISTORY"
     }
 
-    // Instance variables (not shared across workers)
     private val connectIQService = ConnectIQService.getInstance()
     private var connectedDeviceNames = listOf<String>()
     private var lastMessage: String? = null
     private var lastMessageTime: Long = 0
     private lateinit var notificationManager: NotificationManager
-    
-    // Mutex for thread-safe notification state updates
     private val stateMutex = Mutex()
+    private val messageHistory = mutableListOf<String>()
+    private var historyReceiver: BroadcastReceiver? = null
 
     override suspend fun doWork(): Result {
         Log.i(TAG, "Worker starting")
@@ -70,12 +73,22 @@ class ConnectIQQueryWorker(
 
             Log.i(TAG, "SDK confirmed initialized")
 
+            // Register history request receiver
+            registerHistoryReceiver()
+
             connectIQService.setMessageCallback { payload, deviceName, timestamp ->
                 CoroutineScope(Dispatchers.Main).launch {
                     try {
                         stateMutex.withLock {
                             lastMessage = parseMessage(payload, deviceName)
                             lastMessageTime = timestamp
+                            
+                            // Add to history buffer
+                            val logEntry = "[${formatTime(timestamp)}] $deviceName: $lastMessage"
+                            messageHistory.add(logEntry)
+                            if (messageHistory.size > MAX_MESSAGE_HISTORY) {
+                                messageHistory.removeAt(0)
+                            }
                         }
                         updateNotification()
                     } catch (e: Exception) {
@@ -89,7 +102,6 @@ class ConnectIQQueryWorker(
                     try {
                         Log.i(TAG, "Device change callback triggered")
                         
-                        // Re-register listeners after device changes or SDK recovery
                         connectIQService.registerListenersForAllDevices()
                         
                         val devices = connectIQService.getConnectedRealDevices(applicationContext)
@@ -143,9 +155,52 @@ class ConnectIQQueryWorker(
             Result.failure()
         } finally {
             Log.i(TAG, "Worker finally block")
+            unregisterHistoryReceiver()
             connectIQService.setMessageCallback(null)
             connectIQService.setDeviceChangeCallback(null)
         }
+    }
+
+    private fun registerHistoryReceiver() {
+        historyReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.action == ACTION_REQUEST_HISTORY) {
+                    Log.i(TAG, "History request received")
+                    CoroutineScope(Dispatchers.Main).launch {
+                        val historyString = stateMutex.withLock {
+                            messageHistory.joinToString("\n")
+                        }
+                        val responseIntent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
+                            setPackage(applicationContext.packageName)
+                            putExtra("type", "History")
+                            putExtra("messages", historyString)
+                        }
+                        applicationContext.sendBroadcast(responseIntent)
+                        Log.i(TAG, "History sent (${messageHistory.size} messages)")
+                    }
+                }
+            }
+        }
+        
+        val filter = IntentFilter(ACTION_REQUEST_HISTORY)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            applicationContext.registerReceiver(historyReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            applicationContext.registerReceiver(historyReceiver, filter)
+        }
+        Log.i(TAG, "History receiver registered")
+    }
+
+    private fun unregisterHistoryReceiver() {
+        historyReceiver?.let {
+            try {
+                applicationContext.unregisterReceiver(it)
+                Log.i(TAG, "History receiver unregistered")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error unregistering history receiver: ${e.message}")
+            }
+        }
+        historyReceiver = null
     }
 
     private suspend fun updateNotification() {

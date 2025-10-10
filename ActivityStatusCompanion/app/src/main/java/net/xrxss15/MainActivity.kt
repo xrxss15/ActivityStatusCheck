@@ -75,6 +75,14 @@ class MainActivity : Activity() {
         updateServiceStatus()
         updateBatteryOptimizationStatus()
         
+        // Request message history from worker if it's running
+        if (isListenerRunning()) {
+            val historyIntent = Intent(ConnectIQQueryWorker.ACTION_REQUEST_HISTORY).apply {
+                setPackage(packageName)
+            }
+            sendBroadcast(historyIntent)
+        }
+        
         if (!hasRequiredPermissions()) {
             requestRequiredPermissions()
         } else {
@@ -88,6 +96,14 @@ class MainActivity : Activity() {
         appendLog("[${ts()}] App reopened")
         updateServiceStatus()
         updateBatteryOptimizationStatus()
+        
+        // Request history again when reopening
+        if (isListenerRunning()) {
+            val historyIntent = Intent(ConnectIQQueryWorker.ACTION_REQUEST_HISTORY).apply {
+                setPackage(packageName)
+            }
+            sendBroadcast(historyIntent)
+        }
     }
 
     override fun onResume() {
@@ -327,6 +343,20 @@ class MainActivity : Activity() {
 
     private fun handleGarminEvent(type: String?, intent: Intent) {
         when (type) {
+            "History" -> {
+                val messages = intent.getStringExtra("messages") ?: ""
+                if (messages.isNotEmpty()) {
+                    appendLog("")
+                    appendLog("=== Recent Activity History ===")
+                    messages.split("\n").forEach { msg ->
+                        if (msg.isNotEmpty()) appendLog(msg)
+                    }
+                    appendLog("=== End History ===")
+                    appendLog("")
+                } else {
+                    appendLog("[${ts()}] No activity history available")
+                }
+            }
             "Started", "Stopped" -> {
                 val device = intent.getStringExtra("device") ?: "Unknown"
                 val time = intent.getLongExtra("time", 0)

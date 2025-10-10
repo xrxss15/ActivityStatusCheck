@@ -45,7 +45,6 @@
         android:appComponentFactory="androidx.core.app.CoreComponentFactory"
         android:debuggable="true"
         android:extractNativeLibs="false"
-        android:icon="@android:drawable/ic_menu_compass"
         android:label="Garmin Activity Listener"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light" >

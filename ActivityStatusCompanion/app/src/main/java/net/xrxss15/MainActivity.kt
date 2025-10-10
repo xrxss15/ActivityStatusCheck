@@ -47,13 +47,8 @@ class MainActivity : Activity() {
         private const val PERMISSION_REQUEST_CODE = 100
 
         @JvmStatic
-        private fun ts(): String {
-            return SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
-        }
-
-        @JvmStatic
-        private fun formatTimestamp(timestampMillis: Long): String {
-            return SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault()).format(Date(timestampMillis))
+        private fun formatTime(timestamp: Long): String {
+            return SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(timestamp))
         }
 
         @JvmStatic
@@ -71,16 +66,17 @@ class MainActivity : Activity() {
         registerBroadcastReceiver()
         appendLog("Garmin Activity Listener")
         
-        // Update UI once on creation
         updateServiceStatus()
         updateBatteryOptimizationStatus()
         
-        // Request message history from worker if it's running
         if (isListenerRunning()) {
-            val historyIntent = Intent(ConnectIQQueryWorker.ACTION_REQUEST_HISTORY).apply {
-                setPackage(packageName)
-            }
-            sendBroadcast(historyIntent)
+            appendLog("Requesting event history...")
+            handler.postDelayed({
+                val historyIntent = Intent(ConnectIQQueryWorker.ACTION_REQUEST_HISTORY).apply {
+                    setPackage(packageName)
+                }
+                sendBroadcast(historyIntent)
+            }, 500)
         }
         
         if (!hasRequiredPermissions()) {
@@ -93,51 +89,48 @@ class MainActivity : Activity() {
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         setIntent(intent)
-        appendLog("[${ts()}] App reopened")
+        appendLog("[${formatTime(System.currentTimeMillis())}] App reopened")
         updateServiceStatus()
         updateBatteryOptimizationStatus()
         
-        // Request history again when reopening
         if (isListenerRunning()) {
-            val historyIntent = Intent(ConnectIQQueryWorker.ACTION_REQUEST_HISTORY).apply {
-                setPackage(packageName)
-            }
-            sendBroadcast(historyIntent)
+            handler.postDelayed({
+                val historyIntent = Intent(ConnectIQQueryWorker.ACTION_REQUEST_HISTORY).apply {
+                    setPackage(packageName)
+                }
+                sendBroadcast(historyIntent)
+            }, 500)
         }
     }
 
     override fun onResume() {
         super.onResume()
-        // Update UI only when activity becomes visible
         updateServiceStatus()
         updateBatteryOptimizationStatus()
     }
 
     private fun initializeAndStart() {
         if (isListenerRunning()) {
-            appendLog("[${ts()}] Worker already running - skipping SDK init")
+            appendLog("[${formatTime(System.currentTimeMillis())}] Worker already running")
             return
         }
 
-        appendLog("[${ts()}] Initializing ConnectIQ SDK...")
+        appendLog("[${formatTime(System.currentTimeMillis())}] Initializing ConnectIQ SDK...")
         connectIQService.initializeSdkIfNeeded(this) {
             handler.post {
-                appendLog("[${ts()}] SDK initialized successfully")
+                appendLog("[${formatTime(System.currentTimeMillis())}] SDK initialized")
                 if (!isBatteryOptimizationDisabled()) {
-                    appendLog("Battery optimization is enabled")
-                    appendLog("Press 'Battery Settings' to allow background running")
+                    appendLog("Battery optimization enabled - press 'Battery Settings'")
                 }
                 if (!isListenerRunning()) {
                     startWorker()
-                } else {
-                    appendLog("[${ts()}] Worker already running")
                 }
             }
         }
     }
 
     private fun startWorker() {
-        appendLog("[${ts()}] Starting background worker...")
+        appendLog("[${formatTime(System.currentTimeMillis())}] Starting worker...")
         val constraints = Constraints.Builder()
             .setRequiresBatteryNotLow(false)
             .setRequiresCharging(false)
@@ -159,7 +152,7 @@ class MainActivity : Activity() {
         batteryText.text = if (optimizationDisabled) {
             "Battery optimization: Disabled ✓"
         } else {
-            "Battery optimization: Enabled (may affect background)"
+            "Battery optimization: Enabled"
         }
     }
 
@@ -192,7 +185,6 @@ class MainActivity : Activity() {
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
                         requestBatteryOptimizationExemption()
-                        // Update status after button press
                         handler.postDelayed({
                             updateBatteryOptimizationStatus()
                         }, 500)
@@ -202,7 +194,7 @@ class MainActivity : Activity() {
                     text = "Hide"
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
-                        appendLog("[${ts()}] Hiding GUI (worker keeps running)")
+                        appendLog("[${formatTime(System.currentTimeMillis())}] Hiding GUI")
                         finishAndRemoveTask()
                     }
                 }
@@ -256,7 +248,7 @@ class MainActivity : Activity() {
     }
 
     private fun exitAppCompletely() {
-        appendLog("[${ts()}] Stopping listener and terminating app...")
+        appendLog("[${formatTime(System.currentTimeMillis())}] Stopping listener...")
         WorkManager.getInstance(this).cancelUniqueWork("garmin_listener")
         var checkCount = 0
         val checkRunnable = object : Runnable {
@@ -316,12 +308,12 @@ class MainActivity : Activity() {
                     val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
                     intent.data = Uri.parse("package:$packageName")
                     startActivity(intent)
-                    appendLog("[${ts()}] Opening battery settings...")
+                    appendLog("[${formatTime(System.currentTimeMillis())}] Opening battery settings...")
                 } catch (e: Exception) {
-                    appendLog("[${ts()}] Failed to open battery settings")
+                    appendLog("[${formatTime(System.currentTimeMillis())}] Failed to open battery settings")
                 }
             } else {
-                appendLog("[${ts()}] Battery optimization already disabled")
+                appendLog("[${formatTime(System.currentTimeMillis())}] Battery optimization already disabled")
             }
         }
     }
@@ -330,7 +322,8 @@ class MainActivity : Activity() {
         messageReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 val type = intent?.getStringExtra("type") ?: return
-                handleGarminEvent(type, intent)
+                val receiveTime = intent.getLongExtra("receive_time", System.currentTimeMillis())
+                handleGarminEvent(type, intent, receiveTime)
             }
         }
         val filter = IntentFilter("net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT")
@@ -341,67 +334,45 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun handleGarminEvent(type: String?, intent: Intent) {
+    private fun handleGarminEvent(type: String?, intent: Intent, receiveTime: Long) {
+        val time = formatTime(receiveTime)
+        
         when (type) {
-            "History" -> {
-                val messages = intent.getStringExtra("messages") ?: ""
-                if (messages.isNotEmpty()) {
-                    appendLog("")
-                    appendLog("=== Recent Activity History ===")
-                    messages.split("\n").forEach { msg ->
-                        if (msg.isNotEmpty()) appendLog(msg)
-                    }
-                    appendLog("=== End History ===")
-                    appendLog("")
-                } else {
-                    appendLog("[${ts()}] No activity history available")
-                }
-            }
-            "Started", "Stopped" -> {
+            "Started" -> {
                 val device = intent.getStringExtra("device") ?: "Unknown"
-                val time = intent.getLongExtra("time", 0)
+                val activity = intent.getStringExtra("activity") ?: "Unknown"
+                appendLog("[$time] $device: Started $activity")
+            }
+            "Stopped" -> {
+                val device = intent.getStringExtra("device") ?: "Unknown"
                 val activity = intent.getStringExtra("activity") ?: "Unknown"
                 val duration = intent.getIntExtra("duration", 0)
-                appendLog("")
-                appendLog("========================================")
-                appendLog("ACTIVITY EVENT: $type")
-                appendLog("Device: $device")
-                appendLog("Time: ${formatTimestamp(time * 1000)}")
-                appendLog("Activity: $activity")
-                if (type == "Stopped") {
-                    appendLog("Duration: ${formatDuration(duration)}")
-                }
-                appendLog("========================================")
-                appendLog("")
+                appendLog("[$time] $device: Stopped $activity (${formatDuration(duration)})")
             }
             "DeviceList" -> {
                 val devices = intent.getStringExtra("devices") ?: ""
                 val deviceList = if (devices.isEmpty()) emptyList() else devices.split("/")
-                appendLog("[${ts()}] Devices: ${deviceList.size} device(s)")
-                deviceList.forEach {
-                    appendLog("[${ts()}]   - $it")
+                deviceList.forEach { device ->
+                    appendLog("[$time] $device: ${if (devices.isEmpty()) "Disconnected" else "Connected"}")
                 }
             }
             "Created" -> {
                 val devices = intent.getStringExtra("devices") ?: ""
-                val deviceList = if (devices.isEmpty()) emptyList() else devices.split("/")
-                appendLog("[${ts()}] WORKER STARTED")
-                appendLog("[${ts()}] Devices: ${deviceList.size} device(s)")
-                deviceList.forEach {
-                    appendLog("[${ts()}]   - $it")
+                appendLog("[$time] Worker started")
+                if (devices.isNotEmpty()) {
+                    devices.split("/").forEach { device ->
+                        appendLog("[$time] $device: Connected")
+                    }
                 }
-                // Update status when worker starts
                 updateServiceStatus()
             }
             "Terminated" -> {
                 val reason = intent.getStringExtra("reason") ?: "Unknown"
-                appendLog("[${ts()}] WORKER STOPPED: $reason")
-                // Update status when worker stops
+                appendLog("[$time] Worker stopped: $reason")
                 updateServiceStatus()
             }
             "CloseGUI" -> {
-                // Handle close GUI request from receiver
-                appendLog("[${ts()}] Closing GUI via Tasker")
+                appendLog("[$time] Closing GUI via Tasker")
                 finishAndRemoveTask()
             }
         }
@@ -436,14 +407,14 @@ class MainActivity : Activity() {
             perms.add(Manifest.permission.POST_NOTIFICATIONS)
         }
         ActivityCompat.requestPermissions(this, perms.toTypedArray(), PERMISSION_REQUEST_CODE)
-        appendLog("[${ts()}] Requesting permissions...")
+        appendLog("[${formatTime(System.currentTimeMillis())}] Requesting permissions...")
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == PERMISSION_REQUEST_CODE) {
             val allGranted = grantResults.all { it == PackageManager.PERMISSION_GRANTED }
-            appendLog("[${ts()}] Permissions ${if (allGranted) "granted" else "denied"}")
+            appendLog("[${formatTime(System.currentTimeMillis())}] Permissions ${if (allGranted) "granted" else "denied"}")
             if (allGranted) {
                 initializeAndStart()
             }
@@ -451,9 +422,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
-        // Clean up handler callbacks
         handler.removeCallbacksAndMessages(null)
-        
         super.onDestroy()
         
         messageReceiver?.let {

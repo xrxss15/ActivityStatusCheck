@@ -21,6 +21,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -46,7 +47,7 @@ class ConnectIQQueryWorker(
     private var lastMessageTime: Long = 0
     private lateinit var notificationManager: NotificationManager
     private val stateMutex = Mutex()
-    private val messageHistory = mutableListOf<String>()
+    private val eventHistory = mutableListOf<String>() // Stores JSON event data
     private var historyReceiver: BroadcastReceiver? = null
 
     override suspend fun doWork(): Result {
@@ -79,17 +80,17 @@ class ConnectIQQueryWorker(
             connectIQService.setMessageCallback { payload, deviceName, timestamp ->
                 CoroutineScope(Dispatchers.Main).launch {
                     try {
+                        val receiveTime = System.currentTimeMillis()
                         stateMutex.withLock {
                             lastMessage = parseMessage(payload, deviceName)
-                            lastMessageTime = timestamp
+                            lastMessageTime = receiveTime
                             
-                            // Add to history buffer
-                            val logEntry = "[${formatTime(timestamp)}] $deviceName: $lastMessage"
-                            messageHistory.add(logEntry)
-                            if (messageHistory.size > MAX_MESSAGE_HISTORY) {
-                                messageHistory.removeAt(0)
-                            }
+                            // Store complete event data as JSON
+                            storeActivityEvent(payload, deviceName, receiveTime)
                         }
+                        
+                        // Send broadcast with receive timestamp
+                        sendActivityBroadcast(payload, deviceName, receiveTime)
                         updateNotification()
                     } catch (e: Exception) {
                         Log.e(TAG, "Error in message callback: ${e.message}")
@@ -101,6 +102,7 @@ class ConnectIQQueryWorker(
                 CoroutineScope(Dispatchers.IO).launch {
                     try {
                         Log.i(TAG, "Device change callback triggered")
+                        val receiveTime = System.currentTimeMillis()
                         
                         connectIQService.registerListenersForAllDevices()
                         
@@ -109,6 +111,9 @@ class ConnectIQQueryWorker(
                         
                         stateMutex.withLock {
                             connectedDeviceNames = devices
+                            
+                            // Store device list change event
+                            storeDeviceListEvent(devices, receiveTime)
                         }
 
                         val deviceNames = devices.joinToString("/")
@@ -116,6 +121,7 @@ class ConnectIQQueryWorker(
                             addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
                             putExtra("type", "DeviceList")
                             putExtra("devices", deviceNames)
+                            putExtra("receive_time", receiveTime)
                         }
                         applicationContext.sendBroadcast(intent)
                         updateNotification()
@@ -129,12 +135,14 @@ class ConnectIQQueryWorker(
             val initialDevices = connectIQService.getConnectedRealDevices(applicationContext)
                 .map { it.friendlyName ?: "Unknown" }
             
+            val startTime = System.currentTimeMillis()
             stateMutex.withLock {
                 connectedDeviceNames = initialDevices
+                storeDeviceListEvent(initialDevices, startTime)
             }
 
             updateNotification()
-            sendCreatedBroadcast(initialDevices)
+            sendCreatedBroadcast(initialDevices, startTime)
 
             Log.i(TAG, "Listening for events (${initialDevices.size} device(s))")
 
@@ -161,22 +169,106 @@ class ConnectIQQueryWorker(
         }
     }
 
+    private fun storeActivityEvent(payload: String, deviceName: String, receiveTime: Long) {
+        try {
+            val parts = payload.split("|")
+            if (parts.size >= 4) {
+                val eventData = JSONObject().apply {
+                    put("type", if (parts[0].contains("STARTED")) "Started" else "Stopped")
+                    put("device", deviceName)
+                    put("time", parts[1].toLong())
+                    put("activity", parts[2])
+                    put("duration", parts[3].toInt())
+                    put("receive_time", receiveTime)
+                }
+                eventHistory.add(eventData.toString())
+                if (eventHistory.size > MAX_MESSAGE_HISTORY) {
+                    eventHistory.removeAt(0)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error storing activity event: ${e.message}")
+        }
+    }
+
+    private fun storeDeviceListEvent(devices: List<String>, receiveTime: Long) {
+        try {
+            val eventData = JSONObject().apply {
+                put("type", "DeviceList")
+                put("devices", devices.joinToString("/"))
+                put("receive_time", receiveTime)
+            }
+            eventHistory.add(eventData.toString())
+            if (eventHistory.size > MAX_MESSAGE_HISTORY) {
+                eventHistory.removeAt(0)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error storing device list event: ${e.message}")
+        }
+    }
+
+    private fun sendActivityBroadcast(payload: String, deviceName: String, receiveTime: Long) {
+        try {
+            val parts = payload.split("|")
+            if (parts.size < 4) return
+
+            val eventType = if (parts[0].contains("STARTED")) "Started" else "Stopped"
+            val time = parts[1].toLong()
+            val activity = parts[2]
+            val duration = parts[3].toInt()
+
+            val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
+                addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
+                putExtra("type", eventType)
+                putExtra("device", deviceName)
+                putExtra("time", time)
+                putExtra("activity", activity)
+                putExtra("duration", duration)
+                putExtra("receive_time", receiveTime)
+            }
+            applicationContext.sendBroadcast(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending activity broadcast: ${e.message}")
+        }
+    }
+
     private fun registerHistoryReceiver() {
         historyReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 if (intent?.action == ACTION_REQUEST_HISTORY) {
                     Log.i(TAG, "History request received")
                     CoroutineScope(Dispatchers.Main).launch {
-                        val historyString = stateMutex.withLock {
-                            messageHistory.joinToString("\n")
+                        val history = stateMutex.withLock {
+                            eventHistory.toList()
                         }
-                        val responseIntent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
-                            setPackage(applicationContext.packageName)
-                            putExtra("type", "History")
-                            putExtra("messages", historyString)
+                        
+                        // Send each event separately as broadcast
+                        history.forEach { eventJson ->
+                            try {
+                                val event = JSONObject(eventJson)
+                                val responseIntent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
+                                    setPackage(applicationContext.packageName)
+                                    putExtra("type", event.getString("type"))
+                                    putExtra("receive_time", event.getLong("receive_time"))
+                                    
+                                    when (event.getString("type")) {
+                                        "Started", "Stopped" -> {
+                                            putExtra("device", event.getString("device"))
+                                            putExtra("time", event.getLong("time"))
+                                            putExtra("activity", event.getString("activity"))
+                                            putExtra("duration", event.getInt("duration"))
+                                        }
+                                        "DeviceList" -> {
+                                            putExtra("devices", event.getString("devices"))
+                                        }
+                                    }
+                                }
+                                applicationContext.sendBroadcast(responseIntent)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error parsing history event: ${e.message}")
+                            }
                         }
-                        applicationContext.sendBroadcast(responseIntent)
-                        Log.i(TAG, "History sent (${messageHistory.size} messages)")
+                        Log.i(TAG, "History sent (${history.size} events)")
                     }
                 }
             }
@@ -212,9 +304,9 @@ class ConnectIQQueryWorker(
         val parts = payload.split("|")
         if (parts.size < 4) return "Message from $deviceName"
 
-        val event = when (parts[0]) {
-            "STARTED", "ACTIVITY_STARTED" -> "Started"
-            "STOPPED", "ACTIVITY_STOPPED" -> "Stopped"
+        val event = when {
+            parts[0].contains("STARTED") -> "Started"
+            parts[0].contains("STOPPED") -> "Stopped"
             else -> parts[0]
         }
         return "$event ${parts[2]}"
@@ -307,7 +399,7 @@ class ConnectIQQueryWorker(
         }
     }
 
-    private fun sendCreatedBroadcast(deviceNames: List<String>) {
+    private fun sendCreatedBroadcast(deviceNames: List<String>, receiveTime: Long) {
         try {
             val devicesString = deviceNames.joinToString("/")
             val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
@@ -315,6 +407,7 @@ class ConnectIQQueryWorker(
                 putExtra("type", "Created")
                 putExtra("timestamp", System.currentTimeMillis())
                 putExtra("devices", devicesString)
+                putExtra("receive_time", receiveTime)
             }
             applicationContext.sendBroadcast(intent)
             Log.i(TAG, "Created broadcast sent with ${deviceNames.size} device(s): $devicesString")
@@ -329,6 +422,7 @@ class ConnectIQQueryWorker(
                 addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
                 putExtra("type", "Terminated")
                 putExtra("reason", reason)
+                putExtra("receive_time", System.currentTimeMillis())
             }
             applicationContext.sendBroadcast(intent)
             Log.i(TAG, "Terminated broadcast sent: $reason")

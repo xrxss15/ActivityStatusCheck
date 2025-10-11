@@ -22,6 +22,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
+import org.json.JSONArray
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -154,12 +155,12 @@ class ConnectIQQueryWorker(
                 storeDeviceListEvent(initialDevices, startupTime)
             }
 
-            // Send initial DeviceList broadcast
+            // Send initial DeviceList broadcast at startup
             sendDeviceListBroadcast(initialDevices, startupTime)
             
             updateNotification()
             
-            // Now register listeners - device callback will send DeviceList on changes
+            // Now register listeners - device callback will handle future changes
             connectIQService.registerListenersForAllDevices()
 
             Log.i(TAG, "Listening for events (${initialDevices.size} device(s))")
@@ -211,9 +212,10 @@ class ConnectIQQueryWorker(
 
     private fun storeDeviceListEvent(devices: List<String>, receiveTime: Long) {
         try {
+            val devicesArray = JSONArray(devices)
             val eventData = JSONObject().apply {
                 put("type", "DeviceList")
-                put("devices", JSONObject(mapOf("array" to devices)))
+                put("devices", devicesArray)
                 put("device_count", devices.size)
                 put("receive_time", receiveTime)
             }
@@ -296,9 +298,7 @@ class ConnectIQQueryWorker(
                                             }
                                             "DeviceList" -> {
                                                 putExtra("device_count", event.getInt("device_count"))
-                                                // Extract devices array from nested JSON
-                                                val devicesJson = event.getJSONObject("devices")
-                                                val devicesArray = devicesJson.getJSONArray("array")
+                                                val devicesArray = event.getJSONArray("devices")
                                                 val devicesList = mutableListOf<String>()
                                                 for (i in 0 until devicesArray.length()) {
                                                     devicesList.add(devicesArray.getString(i))

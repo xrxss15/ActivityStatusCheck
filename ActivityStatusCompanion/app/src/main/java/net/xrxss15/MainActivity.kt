@@ -374,9 +374,14 @@ class MainActivity : Activity() {
                 val durationStr = String.format("%dh %02dm", hours, minutes)
                 appendLog("[${ts()}] $device completed $activity in $durationStr (started $formattedDate)")
             }
-            "Connected", "Disconnected" -> {
-                val device = intent.getStringExtra("device") ?: "Unknown"
-                appendLog("[${ts()}] Device $type: $device")
+            "DeviceList" -> {
+                val devices = intent.getStringArrayExtra("devices") ?: emptyArray()
+                val deviceCount = intent.getIntExtra("device_count", 0)
+                if (deviceCount == 0) {
+                    appendLog("[${ts()}] Devices: None")
+                } else {
+                    appendLog("[${ts()}] Devices: ${devices.joinToString(", ")}")
+                }
             }
             "Created" -> {
                 appendLog("[${ts()}] WORKER STARTED")

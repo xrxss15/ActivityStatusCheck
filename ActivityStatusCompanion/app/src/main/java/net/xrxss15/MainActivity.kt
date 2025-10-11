@@ -275,7 +275,7 @@ class MainActivity : Activity() {
                 val running = isListenerRunning()
                 if (!running || checkCount >= 20) {
                     ConnectIQService.resetInstance()
-                    finishAffinity()
+                    finishAndRemoveTask()
                     android.os.Process.killProcess(android.os.Process.myPid())
                 } else {
                     handler.postDelayed(this, 100)
@@ -283,6 +283,11 @@ class MainActivity : Activity() {
             }
         }
         handler.postDelayed(checkRunnable, 100)
+    }
+
+    private fun closeGUI() {
+        appendLog("[${ts()}] Closing GUI (worker keeps running)")
+        finishAndRemoveTask()
     }
 
     private fun isListenerRunning(): Boolean {
@@ -338,8 +343,7 @@ class MainActivity : Activity() {
                 val type = intent?.getStringExtra("type") ?: return
                 when (type) {
                     "CloseGUI" -> {
-                        appendLog("[${ts()}] Received CloseGUI command")
-                        finishAndRemoveTask()
+                        closeGUI()
                     }
                     else -> handleGarminEvent(type, intent)
                 }

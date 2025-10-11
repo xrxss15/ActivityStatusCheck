@@ -52,17 +52,6 @@ class MainActivity : Activity() {
         private const val STATUS_UPDATE_INTERVAL_MS = 1_000L
 
         private fun ts(): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
-
-        private fun formatTimestamp(timestampMillis: Long): String {
-            return SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault()).format(Date(timestampMillis))
-        }
-
-        private fun formatDuration(seconds: Int): String {
-            val hours = seconds / 3600
-            val minutes = (seconds % 3600) / 60
-            val secs = seconds % 60
-            return String.format("%02d:%02d:%02d", hours, minutes, secs)
-        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -286,7 +275,6 @@ class MainActivity : Activity() {
                 val running = isListenerRunning()
                 if (!running || checkCount >= 20) {
                     ConnectIQService.resetInstance()
-                    // Worker's finally block sends Terminated broadcast
                     finishAffinity()
                     android.os.Process.killProcess(android.os.Process.myPid())
                 } else {
@@ -368,23 +356,23 @@ class MainActivity : Activity() {
 
     private fun handleGarminEvent(type: String?, intent: Intent) {
         when (type) {
-            "Started", "Stopped" -> {
+            "Started" -> {
+                val device = intent.getStringExtra("device") ?: "Unknown"
+                val time = intent.getLongExtra("time", 0)
+                val activity = intent.getStringExtra("activity") ?: "Unknown"
+                val formattedDate = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(Date(time * 1000))
+                appendLog("[${ts()}] $device started $activity at $formattedDate")
+            }
+            "Stopped" -> {
                 val device = intent.getStringExtra("device") ?: "Unknown"
                 val time = intent.getLongExtra("time", 0)
                 val activity = intent.getStringExtra("activity") ?: "Unknown"
                 val duration = intent.getIntExtra("duration", 0)
-
-                appendLog("")
-                appendLog("========================================")
-                appendLog("ACTIVITY EVENT: $type")
-                appendLog("Device: $device")
-                appendLog("Time: ${formatTimestamp(time * 1000)}")
-                appendLog("Activity: $activity")
-                if (type == "Stopped") {
-                    appendLog("Duration: ${formatDuration(duration)}")
-                }
-                appendLog("========================================")
-                appendLog("")
+                val hours = duration / 3600
+                val minutes = (duration % 3600) / 60
+                val formattedDate = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(Date(time * 1000))
+                val durationStr = String.format("%dh %02dm", hours, minutes)
+                appendLog("[${ts()}] $device completed $activity in $durationStr (started $formattedDate)")
             }
             "Connected", "Disconnected" -> {
                 val device = intent.getStringExtra("device") ?: "Unknown"

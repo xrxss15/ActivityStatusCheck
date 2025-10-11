@@ -150,6 +150,7 @@ class ConnectIQQueryWorker(
                 connectedDeviceNames = initialDevices
                 previousDeviceList = initialDevices
                 
+                // Store initial connections but DON'T broadcast them yet
                 initialDevices.forEach { device ->
                     storeConnectionEvent(device, true, startTime)
                 }
@@ -157,6 +158,11 @@ class ConnectIQQueryWorker(
 
             updateNotification()
             sendCreatedBroadcast(initialDevices, startTime)
+            
+            // Send Connected broadcasts AFTER Created
+            initialDevices.forEach { device ->
+                sendConnectionBroadcast(device, true, startTime)
+            }
 
             Log.i(TAG, "Listening for events (${initialDevices.size} device(s))")
 
@@ -328,10 +334,30 @@ class ConnectIQQueryWorker(
                             val openIntent = Intent(context, MainActivity::class.java).apply {
                                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
                             }
-                            context?.startActivity(openIntent)
-                            Log.i(TAG, "MainActivity started")
+                            
+                            // Show notification for user to tap (Android 10+ restriction workaround)
+                            val fullScreenPendingIntent = PendingIntent.getActivity(
+                                applicationContext,
+                                999,
+                                openIntent,
+                                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                            )
+                            
+                            val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
+                                .setSmallIcon(android.R.drawable.ic_menu_compass)
+                                .setContentTitle("Garmin Activity Listener")
+                                .setContentText("Tap to open")
+                                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                                .setCategory(NotificationCompat.CATEGORY_CALL)
+                                .setAutoCancel(true)
+                                .setContentIntent(fullScreenPendingIntent)
+                                .setFullScreenIntent(fullScreenPendingIntent, true)
+                                .build()
+                            
+                            notificationManager.notify(9998, notification)
+                            Log.i(TAG, "Open GUI notification shown")
                         } catch (e: Exception) {
-                            Log.e(TAG, "Failed to start MainActivity: ${e.message}", e)
+                            Log.e(TAG, "Failed to open GUI: ${e.message}", e)
                         }
                     }
                     ACTION_CLOSE_GUI -> {
@@ -489,10 +515,6 @@ class ConnectIQQueryWorker(
                 putExtra("receive_time", receiveTime)
             }
             applicationContext.sendBroadcast(intent)
-            
-            // Device change callback will send individual Connected broadcasts
-            // Don't duplicate them here
-            
             Log.i(TAG, "Created broadcast sent with ${deviceNames.size} device(s)")
         } catch (e: Exception) {
             Log.e(TAG, "Created broadcast failed", e)

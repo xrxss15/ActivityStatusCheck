@@ -189,7 +189,7 @@ class MainActivity : Activity() {
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
                         appendLog("[${ts()}] Hiding GUI (worker keeps running)")
-                        moveTaskToBack(true)
+                        finishAndRemoveTask()
                     }
                 }
 

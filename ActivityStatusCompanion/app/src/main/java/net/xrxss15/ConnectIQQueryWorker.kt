@@ -357,11 +357,11 @@ class ConnectIQQueryWorker(
         }
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            applicationContext.registerReceiver(controlReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            applicationContext.registerReceiver(controlReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
             applicationContext.registerReceiver(controlReceiver, filter)
         }
-        Log.i(TAG, "Control receiver registered (RECEIVER_NOT_EXPORTED) for all actions")
+        Log.i(TAG, "Control receiver registered (RECEIVER_EXPORTED) for all actions")
     }
 
     private fun unregisterControlReceiver() {

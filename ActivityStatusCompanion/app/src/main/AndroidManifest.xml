@@ -37,7 +37,7 @@
             android:excludeFromRecents="true"
             android:noHistory="true" />
 
-        <!-- NO BroadcastReceiver declared - everything handled in Worker at runtime -->
+        <!-- NO BroadcastReceiver - Worker handles everything at runtime with RECEIVER_EXPORTED -->
 
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"

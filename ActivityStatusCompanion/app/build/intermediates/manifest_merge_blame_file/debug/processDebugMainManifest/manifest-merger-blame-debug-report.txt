@@ -111,7 +111,7 @@
 58            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 58-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:36:13-72
 59
-60        <!-- NO BroadcastReceiver declared - everything handled in Worker at runtime -->
+60        <!-- NO BroadcastReceiver - Worker handles everything at runtime with RECEIVER_EXPORTED -->
 61
 62        <service
 62-->/workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:42:9-45:34

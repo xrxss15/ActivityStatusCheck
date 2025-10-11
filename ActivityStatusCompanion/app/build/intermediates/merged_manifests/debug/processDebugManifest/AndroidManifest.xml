@@ -57,7 +57,7 @@
             android:noHistory="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
-        <!-- NO BroadcastReceiver declared - everything handled in Worker at runtime -->
+        <!-- NO BroadcastReceiver - Worker handles everything at runtime with RECEIVER_EXPORTED -->
 
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"

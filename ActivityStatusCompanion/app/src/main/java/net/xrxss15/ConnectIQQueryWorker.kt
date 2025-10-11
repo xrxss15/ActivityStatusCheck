@@ -357,11 +357,11 @@ class ConnectIQQueryWorker(
         }
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            applicationContext.registerReceiver(controlReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            applicationContext.registerReceiver(controlReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
             applicationContext.registerReceiver(controlReceiver, filter)
         }
-        Log.i(TAG, "Control receiver registered (RECEIVER_NOT_EXPORTED) - requires package name in Tasker")
+        Log.i(TAG, "Control receiver registered (RECEIVER_EXPORTED) - external apps can send")
     }
 
     private fun unregisterControlReceiver() {
@@ -414,9 +414,7 @@ class ConnectIQQueryWorker(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val exitIntent = Intent(ACTION_TERMINATE).apply {
-            setPackage(applicationContext.packageName)
-        }
+        val exitIntent = Intent(ACTION_TERMINATE)
         val exitPendingIntent = PendingIntent.getBroadcast(
             applicationContext, 1, exitIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE

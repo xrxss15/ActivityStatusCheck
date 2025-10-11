@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -32,7 +33,6 @@ class MainActivity : Activity() {
     private lateinit var logView: TextView
     private lateinit var scroll: ScrollView
     private lateinit var statusText: TextView
-    private lateinit var uptimeText: TextView
     private lateinit var batteryText: TextView
     private lateinit var batteryBtn: Button
     private lateinit var copyBtn: Button
@@ -42,36 +42,26 @@ class MainActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private var messageReceiver: BroadcastReceiver? = null
     private val connectIQService = ConnectIQService.getInstance()
-    private var workerStartTime: Long = 0
+    private var batteryUpdateRunnable: Runnable? = null
 
     companion object {
         private const val TAG = "MainActivity"
         private const val PERMISSION_REQUEST_CODE = 100
+        private const val BATTERY_UPDATE_INTERVAL_MS = 30_000L
+        private const val STATUS_UPDATE_DELAY_MS = 500L
+        private const val STATUS_UPDATE_INTERVAL_MS = 1_000L
 
-        @JvmStatic
-        private fun formatTime(timestamp: Long): String {
-            return SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(timestamp))
+        private fun ts(): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
+
+        private fun formatTimestamp(timestampMillis: Long): String {
+            return SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault()).format(Date(timestampMillis))
         }
 
-        @JvmStatic
-        private fun formatDateTime(timestamp: Long): String {
-            return SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(timestamp))
-        }
-
-        @JvmStatic
         private fun formatDuration(seconds: Int): String {
             val hours = seconds / 3600
             val minutes = (seconds % 3600) / 60
             val secs = seconds % 60
             return String.format("%02d:%02d:%02d", hours, minutes, secs)
-        }
-
-        @JvmStatic
-        private fun formatUptime(startTime: Long): String {
-            if (startTime == 0L) return "Unknown"
-            val now = System.currentTimeMillis()
-            val uptimeSeconds = ((now - startTime) / 1000).toInt()
-            return formatDuration(uptimeSeconds)
         }
     }
 
@@ -80,90 +70,71 @@ class MainActivity : Activity() {
         createUI()
         registerBroadcastReceiver()
         appendLog("Garmin Activity Listener")
-        
-        updateServiceStatus()
-        updateBatteryOptimizationStatus()
-        
-        if (isListenerRunning()) {
-            appendLog("Requesting worker status...")
-            handler.postDelayed({
-                // Send Ping to get worker start time
-                val pingIntent = Intent(ConnectIQQueryWorker.ACTION_PING).apply {
-                    setPackage(packageName)
-                }
-                sendBroadcast(pingIntent)
-                
-                // Request history
-                val historyIntent = Intent(ConnectIQQueryWorker.ACTION_REQUEST_HISTORY).apply {
-                    setPackage(packageName)
-                }
-                sendBroadcast(historyIntent)
-            }, 500)
-        }
-        
+
         if (!hasRequiredPermissions()) {
             requestRequiredPermissions()
         } else {
             initializeAndStart()
         }
+
+        updateServiceStatus()
+        updateBatteryStats()
+        batteryUpdateRunnable = object : Runnable {
+            override fun run() {
+                updateBatteryStats()
+                handler.postDelayed(this, BATTERY_UPDATE_INTERVAL_MS)
+            }
+        }
+        handler.postDelayed(batteryUpdateRunnable!!, BATTERY_UPDATE_INTERVAL_MS)
     }
 
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         setIntent(intent)
-        appendLog("[${formatTime(System.currentTimeMillis())}] App reopened")
+        appendLog("[${ts()}] App reopened")
         updateServiceStatus()
-        updateBatteryOptimizationStatus()
         
+        // Only request history, no PING needed
         if (isListenerRunning()) {
             handler.postDelayed({
-                val pingIntent = Intent(ConnectIQQueryWorker.ACTION_PING).apply {
-                    setPackage(packageName)
-                }
-                sendBroadcast(pingIntent)
-                
-                val historyIntent = Intent(ConnectIQQueryWorker.ACTION_REQUEST_HISTORY).apply {
-                    setPackage(packageName)
-                }
+                val historyIntent = Intent(ConnectIQQueryWorker.ACTION_REQUEST_HISTORY)
                 sendBroadcast(historyIntent)
             }, 500)
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        updateServiceStatus()
-        updateBatteryOptimizationStatus()
-        updateUptimeDisplay()
-    }
-
     private fun initializeAndStart() {
-        if (isListenerRunning()) {
-            appendLog("[${formatTime(System.currentTimeMillis())}] Worker already running")
-            return
-        }
-
-        appendLog("[${formatTime(System.currentTimeMillis())}] Initializing ConnectIQ SDK...")
+        appendLog("[${ts()}] Initializing ConnectIQ SDK...")
         connectIQService.initializeSdkIfNeeded(this) {
             handler.post {
-                appendLog("[${formatTime(System.currentTimeMillis())}] SDK initialized")
+                appendLog("[${ts()}] SDK initialized successfully")
                 if (!isBatteryOptimizationDisabled()) {
-                    appendLog("Battery optimization enabled - press 'Battery Settings'")
+                    appendLog("Battery optimization is enabled")
+                    appendLog("Press 'Battery Settings' to allow background running")
                 }
+
                 if (!isListenerRunning()) {
                     startWorker()
+                } else {
+                    appendLog("[${ts()}] Worker already running")
+                    // Request history when app starts with worker already running
+                    handler.postDelayed({
+                        val historyIntent = Intent(ConnectIQQueryWorker.ACTION_REQUEST_HISTORY)
+                        sendBroadcast(historyIntent)
+                    }, 500)
                 }
             }
         }
     }
 
     private fun startWorker() {
-        appendLog("[${formatTime(System.currentTimeMillis())}] Starting worker...")
+        appendLog("[${ts()}] Starting background worker...")
         val constraints = Constraints.Builder()
             .setRequiresBatteryNotLow(false)
             .setRequiresCharging(false)
             .setRequiresDeviceIdle(false)
             .build()
+
         val workRequest = OneTimeWorkRequestBuilder<ConnectIQQueryWorker>()
             .setConstraints(constraints)
             .build()
@@ -173,22 +144,35 @@ class MainActivity : Activity() {
             ExistingWorkPolicy.KEEP,
             workRequest
         )
+
+        handler.postDelayed({
+            updateServiceStatus()
+        }, STATUS_UPDATE_INTERVAL_MS)
     }
 
-    private fun updateBatteryOptimizationStatus() {
-        val optimizationDisabled = isBatteryOptimizationDisabled()
-        batteryText.text = if (optimizationDisabled) {
-            "Battery optimization: Disabled ✓"
-        } else {
-            "Battery optimization: Enabled"
-        }
-    }
+    private fun updateBatteryStats() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            try {
+                val batteryManager = getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+                if (batteryManager == null) {
+                    batteryText.text = "Battery stats unavailable"
+                    return
+                }
 
-    private fun updateUptimeDisplay() {
-        if (workerStartTime > 0) {
-            uptimeText.text = "Worker uptime: ${formatUptime(workerStartTime)}"
+                val batteryPct = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                val stats = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    "Battery: $batteryPct% | App usage: Check system battery settings"
+                } else {
+                    "Battery: $batteryPct%"
+                }
+
+                batteryText.text = stats
+            } catch (e: Exception) {
+                batteryText.text = "Battery stats unavailable"
+                Log.e(TAG, "Failed to get battery stats: ${e.message}")
+            }
         } else {
-            uptimeText.text = "Worker uptime: Unknown"
+            batteryText.text = "Battery stats not supported"
         }
     }
 
@@ -196,50 +180,48 @@ class MainActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(16, 16, 16, 16)
+
             addView(TextView(this@MainActivity).apply {
                 text = "Garmin Activity Listener"
                 textSize = 16f
                 setTypeface(null, android.graphics.Typeface.BOLD)
             })
+
             statusText = TextView(this@MainActivity).apply {
                 text = "Status: Initializing..."
                 textSize = 14f
                 setPadding(0, 8, 0, 0)
             }
             addView(statusText)
-            uptimeText = TextView(this@MainActivity).apply {
-                text = "Worker uptime: Unknown"
-                textSize = 14f
-                setPadding(0, 4, 0, 0)
-            }
-            addView(uptimeText)
+
             batteryText = TextView(this@MainActivity).apply {
-                text = "Battery optimization: Checking..."
+                text = "Battery: --"
                 textSize = 14f
                 setPadding(0, 4, 0, 8)
             }
             addView(batteryText)
+
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 8, 0, 8)
+
                 batteryBtn = Button(this@MainActivity).apply {
-                    text = "Battery Settings"
+                    text = "Battery"
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
                         requestBatteryOptimizationExemption()
-                        handler.postDelayed({
-                            updateBatteryOptimizationStatus()
-                        }, 500)
                     }
                 }
+
                 hideBtn = Button(this@MainActivity).apply {
                     text = "Hide"
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
-                        appendLog("[${formatTime(System.currentTimeMillis())}] Hiding GUI")
-                        finishAndRemoveTask()
+                        appendLog("[${ts()}] Hiding GUI (worker keeps running)")
+                        moveTaskToBack(true)
                     }
                 }
+
                 exitBtn = Button(this@MainActivity).apply {
                     text = "Exit"
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -247,13 +229,16 @@ class MainActivity : Activity() {
                         exitAppCompletely()
                     }
                 }
+
                 addView(batteryBtn)
                 addView(hideBtn)
                 addView(exitBtn)
             })
+
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 0, 0, 8)
+
                 copyBtn = Button(this@MainActivity).apply {
                     text = "Copy Log"
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -263,6 +248,7 @@ class MainActivity : Activity() {
                         Toast.makeText(this@MainActivity, "Log copied", Toast.LENGTH_SHORT).show()
                     }
                 }
+
                 clearBtn = Button(this@MainActivity).apply {
                     text = "Clear Log"
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -271,9 +257,11 @@ class MainActivity : Activity() {
                         appendLog("Garmin Activity Listener")
                     }
                 }
+
                 addView(copyBtn)
                 addView(clearBtn)
             })
+
             scroll = ScrollView(this@MainActivity)
             logView = TextView(this@MainActivity).apply {
                 textSize = 12f
@@ -290,8 +278,9 @@ class MainActivity : Activity() {
     }
 
     private fun exitAppCompletely() {
-        appendLog("[${formatTime(System.currentTimeMillis())}] Stopping listener...")
+        appendLog("[${ts()}] Stopping listener and terminating app...")
         WorkManager.getInstance(this).cancelUniqueWork("garmin_listener")
+
         var checkCount = 0
         val checkRunnable = object : Runnable {
             override fun run() {
@@ -299,10 +288,11 @@ class MainActivity : Activity() {
                 val running = isListenerRunning()
                 if (!running || checkCount >= 20) {
                     ConnectIQService.resetInstance()
-                    val intent = Intent("net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT").apply {
+                    val intent = Intent(ConnectIQQueryWorker.ACTION_EVENT).apply {
                         addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
                         putExtra("type", "Terminated")
                         putExtra("reason", "User exit")
+                        putExtra("receive_time", System.currentTimeMillis())
                     }
                     sendBroadcast(intent)
                     finishAffinity()
@@ -327,12 +317,14 @@ class MainActivity : Activity() {
     }
 
     private fun updateServiceStatus() {
-        val running = isListenerRunning()
-        statusText.text = if (running) {
-            "Status: Listener Active"
-        } else {
-            "Status: Listener Inactive"
-        }
+        handler.postDelayed({
+            val running = isListenerRunning()
+            statusText.text = if (running) {
+                "Status: Listener Active"
+            } else {
+                "Status: Listener Inactive"
+            }
+        }, STATUS_UPDATE_DELAY_MS)
     }
 
     private fun isBatteryOptimizationDisabled(): Boolean {
@@ -350,12 +342,12 @@ class MainActivity : Activity() {
                     val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
                     intent.data = Uri.parse("package:$packageName")
                     startActivity(intent)
-                    appendLog("[${formatTime(System.currentTimeMillis())}] Opening battery settings...")
+                    appendLog("[${ts()}] Opening battery settings...")
                 } catch (e: Exception) {
-                    appendLog("[${formatTime(System.currentTimeMillis())}] Failed to open battery settings")
+                    appendLog("[${ts()}] Failed to open battery settings")
                 }
             } else {
-                appendLog("[${formatTime(System.currentTimeMillis())}] Battery optimization already disabled")
+                appendLog("[${ts()}] Battery optimization already disabled")
             }
         }
     }
@@ -364,11 +356,17 @@ class MainActivity : Activity() {
         messageReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 val type = intent?.getStringExtra("type") ?: return
-                val receiveTime = intent.getLongExtra("receive_time", System.currentTimeMillis())
-                handleGarminEvent(type, intent, receiveTime)
+                when (type) {
+                    "CloseGUI" -> {
+                        appendLog("[${ts()}] Received CloseGUI command")
+                        finishAndRemoveTask()
+                    }
+                    else -> handleGarminEvent(type, intent)
+                }
             }
         }
-        val filter = IntentFilter("net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT")
+
+        val filter = IntentFilter(ConnectIQQueryWorker.ACTION_EVENT)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(messageReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
@@ -376,54 +374,40 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun handleGarminEvent(type: String?, intent: Intent, receiveTime: Long) {
-        val time = formatTime(receiveTime)
-        
+    private fun handleGarminEvent(type: String?, intent: Intent) {
         when (type) {
-            "Pong" -> {
-                workerStartTime = intent.getLongExtra("worker_start_time", 0)
-                appendLog("[${formatTime(System.currentTimeMillis())}] Worker running since ${formatDateTime(workerStartTime)}")
-                updateUptimeDisplay()
-            }
-            "Started" -> {
+            "Started", "Stopped" -> {
                 val device = intent.getStringExtra("device") ?: "Unknown"
-                val activity = intent.getStringExtra("activity") ?: "Unknown"
-                appendLog("[$time] $device: Started $activity")
-            }
-            "Stopped" -> {
-                val device = intent.getStringExtra("device") ?: "Unknown"
+                val time = intent.getLongExtra("time", 0)
                 val activity = intent.getStringExtra("activity") ?: "Unknown"
                 val duration = intent.getIntExtra("duration", 0)
-                appendLog("[$time] $device: Stopped $activity (${formatDuration(duration)})")
+
+                appendLog("")
+                appendLog("========================================")
+                appendLog("ACTIVITY EVENT: $type")
+                appendLog("Device: $device")
+                appendLog("Time: ${formatTimestamp(time * 1000)}")
+                appendLog("Activity: $activity")
+                if (type == "Stopped") {
+                    appendLog("Duration: ${formatDuration(duration)}")
+                }
+                appendLog("========================================")
+                appendLog("")
             }
-            "Connected" -> {
+            "Connected", "Disconnected" -> {
                 val device = intent.getStringExtra("device") ?: "Unknown"
-                appendLog("[$time] $device: Connected")
-            }
-            "Disconnected" -> {
-                val device = intent.getStringExtra("device") ?: "Unknown"
-                appendLog("[$time] $device: Disconnected")
+                appendLog("[${ts()}] Device $type: $device")
             }
             "Created" -> {
-                workerStartTime = intent.getLongExtra("worker_start_time", 0)
                 val deviceCount = intent.getIntExtra("device_count", 0)
-                appendLog("[$time] Worker started ($deviceCount device(s))")
-                appendLog("[$time] Start time: ${formatDateTime(workerStartTime)}")
-                updateServiceStatus()
-                updateUptimeDisplay()
+                appendLog("[${ts()}] WORKER STARTED - $deviceCount device(s)")
             }
             "Terminated" -> {
                 val reason = intent.getStringExtra("reason") ?: "Unknown"
-                appendLog("[$time] Worker stopped: $reason")
-                workerStartTime = 0
-                updateServiceStatus()
-                updateUptimeDisplay()
-            }
-            "CloseGUI" -> {
-                appendLog("[$time] Closing GUI via Tasker")
-                finishAndRemoveTask()
+                appendLog("[${ts()}] WORKER STOPPED: $reason")
             }
         }
+        updateServiceStatus()
     }
 
     private fun appendLog(line: String) {
@@ -455,24 +439,30 @@ class MainActivity : Activity() {
             perms.add(Manifest.permission.POST_NOTIFICATIONS)
         }
         ActivityCompat.requestPermissions(this, perms.toTypedArray(), PERMISSION_REQUEST_CODE)
-        appendLog("[${formatTime(System.currentTimeMillis())}] Requesting permissions...")
+        appendLog("[${ts()}] Requesting permissions...")
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == PERMISSION_REQUEST_CODE) {
             val allGranted = grantResults.all { it == PackageManager.PERMISSION_GRANTED }
-            appendLog("[${formatTime(System.currentTimeMillis())}] Permissions ${if (allGranted) "granted" else "denied"}")
+            appendLog("[${ts()}] Permissions ${if (allGranted) "granted" else "denied"}")
             if (allGranted) {
                 initializeAndStart()
             }
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        updateServiceStatus()
+        updateBatteryStats()
+    }
+
     override fun onDestroy() {
-        handler.removeCallbacksAndMessages(null)
+        batteryUpdateRunnable?.let { handler.removeCallbacks(it) }
+        batteryUpdateRunnable = null
         super.onDestroy()
-        
         messageReceiver?.let {
             try {
                 unregisterReceiver(it)

@@ -1,9 +1,9 @@
 -- Merging decision tree log ---
 manifest
-ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:2:1-49:12
-INJECTED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:2:1-49:12
-INJECTED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:2:1-49:12
-INJECTED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:2:1-49:12
+ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:2:1-48:12
+INJECTED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:2:1-48:12
+INJECTED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:2:1-48:12
+INJECTED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:2:1-48:12
 MERGED from [androidx.work:work-runtime-ktx:2.9.0] /home/vscode/.gradle/caches/8.10.2/transforms/e6b29601ff9c6fb5543df6e74c46555e/transformed/work-runtime-ktx-2.9.0/AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.work:work-runtime:2.9.0] /home/vscode/.gradle/caches/8.10.2/transforms/a3321e9251092b39018670a2e5e846ec/transformed/work-runtime-2.9.0/AndroidManifest.xml:17:1-145:12
 MERGED from [androidx.core:core:1.13.1] /home/vscode/.gradle/caches/8.10.2/transforms/e82a9e8137b993b9644381fc44eec3b0/transformed/core-1.13.1/AndroidManifest.xml:17:1-30:12
@@ -78,9 +78,13 @@ uses-permission#android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
 ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:14:5-95
 	android:name
 		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:14:22-92
+uses-permission#android.permission.EXPAND_STATUS_BAR
+ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:15:5-76
+	android:name
+		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:15:22-73
 application
-ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:16:5-47:19
-INJECTED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:16:5-47:19
+ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:17:5-46:19
+INJECTED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:17:5-46:19
 MERGED from [androidx.work:work-runtime:2.9.0] /home/vscode/.gradle/caches/8.10.2/transforms/a3321e9251092b39018670a2e5e846ec/transformed/work-runtime-2.9.0/AndroidManifest.xml:28:5-143:19
 MERGED from [androidx.work:work-runtime:2.9.0] /home/vscode/.gradle/caches/8.10.2/transforms/a3321e9251092b39018670a2e5e846ec/transformed/work-runtime-2.9.0/AndroidManifest.xml:28:5-143:19
 MERGED from [androidx.core:core:1.13.1] /home/vscode/.gradle/caches/8.10.2/transforms/e82a9e8137b993b9644381fc44eec3b0/transformed/core-1.13.1/AndroidManifest.xml:28:5-89
@@ -98,53 +102,53 @@ MERGED from [androidx.versionedparcelable:versionedparcelable:1.1.1] /home/vscod
 	android:appComponentFactory
 		ADDED from [androidx.core:core:1.13.1] /home/vscode/.gradle/caches/8.10.2/transforms/e82a9e8137b993b9644381fc44eec3b0/transformed/core-1.13.1/AndroidManifest.xml:28:18-86
 	android:supportsRtl
-		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:20:9-35
+		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:21:9-35
 	android:label
-		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:19:9-49
+		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:20:9-49
 	android:icon
-		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:18:9-57
+		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:19:9-57
 	android:allowBackup
-		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:17:9-35
+		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:18:9-35
 	android:theme
-		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:21:9-60
+		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:22:9-60
 activity#net.xrxss15.MainActivity
-ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:23:9-31:20
+ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:24:9-32:20
 	android:launchMode
-		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:26:13-43
+		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:27:13-43
 	android:exported
-		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:25:13-36
+		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:26:13-36
 	android:name
-		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:24:13-41
+		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:25:13-41
 intent-filter#action:name:android.intent.action.MAIN+category:name:android.intent.category.LAUNCHER
-ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:27:13-30:29
+ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:28:13-31:29
 action#android.intent.action.MAIN
-ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:28:17-69
+ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:29:17-69
 	android:name
-		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:28:25-66
+		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:29:25-66
 category#android.intent.category.LAUNCHER
-ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:29:17-77
+ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:30:17-77
 	android:name
-		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:29:27-74
+		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:30:27-74
 activity#net.xrxss15.SdkInitActivity
-ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:33:9-38:40
+ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:34:9-39:40
 	android:excludeFromRecents
-		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:37:13-46
+		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:38:13-46
 	android:noHistory
-		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:38:13-37
+		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:39:13-37
 	android:exported
-		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:35:13-37
+		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:36:13-37
 	android:theme
-		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:36:13-72
+		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:37:13-72
 	android:name
-		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:34:13-44
+		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:35:13-44
 service#androidx.work.impl.foreground.SystemForegroundService
-ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:42:9-45:34
+ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:41:9-44:34
 MERGED from [androidx.work:work-runtime:2.9.0] /home/vscode/.gradle/caches/8.10.2/transforms/a3321e9251092b39018670a2e5e846ec/transformed/work-runtime-2.9.0/AndroidManifest.xml:53:9-59:35
 MERGED from [androidx.work:work-runtime:2.9.0] /home/vscode/.gradle/caches/8.10.2/transforms/a3321e9251092b39018670a2e5e846ec/transformed/work-runtime-2.9.0/AndroidManifest.xml:53:9-59:35
 	android:enabled
 		ADDED from [androidx.work:work-runtime:2.9.0] /home/vscode/.gradle/caches/8.10.2/transforms/a3321e9251092b39018670a2e5e846ec/transformed/work-runtime-2.9.0/AndroidManifest.xml:56:13-77
 	tools:node
-		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:45:13-31
+		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:44:13-31
 	android:exported
 		ADDED from [androidx.work:work-runtime:2.9.0] /home/vscode/.gradle/caches/8.10.2/transforms/a3321e9251092b39018670a2e5e846ec/transformed/work-runtime-2.9.0/AndroidManifest.xml:57:13-37
 	tools:ignore
@@ -154,9 +158,9 @@ MERGED from [androidx.work:work-runtime:2.9.0] /home/vscode/.gradle/caches/8.10.
 	android:directBootAware
 		ADDED from [androidx.work:work-runtime:2.9.0] /home/vscode/.gradle/caches/8.10.2/transforms/a3321e9251092b39018670a2e5e846ec/transformed/work-runtime-2.9.0/AndroidManifest.xml:55:13-44
 	android:foregroundServiceType
-		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:44:13-53
+		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:43:13-53
 	android:name
-		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:43:13-81
+		ADDED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml:42:13-81
 uses-sdk
 INJECTED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml reason: use-sdk injection requested
 INJECTED from /workspaces/ActivityStatusCheck/ActivityStatusCompanion/app/src/main/AndroidManifest.xml

@@ -150,7 +150,6 @@ class ConnectIQQueryWorker(
                 connectedDeviceNames = initialDevices
                 previousDeviceList = initialDevices
                 
-                // Store initial connections but DON'T broadcast them yet
                 initialDevices.forEach { device ->
                     storeConnectionEvent(device, true, startTime)
                 }
@@ -158,11 +157,6 @@ class ConnectIQQueryWorker(
 
             updateNotification()
             sendCreatedBroadcast(initialDevices, startTime)
-            
-            // Send Connected broadcasts AFTER Created
-            initialDevices.forEach { device ->
-                sendConnectionBroadcast(device, true, startTime)
-            }
 
             Log.i(TAG, "Listening for events (${initialDevices.size} device(s))")
 
@@ -323,8 +317,7 @@ class ConnectIQQueryWorker(
                         }
                     }
                     ACTION_TERMINATE -> {
-                        Log.i(TAG, "Terminate received - stopping worker")
-                        sendTerminatedBroadcast("Tasker terminate")
+                        Log.i(TAG, "Terminate received - killing process")
                         ConnectIQService.resetInstance()
                         android.os.Process.killProcess(android.os.Process.myPid())
                     }
@@ -335,8 +328,7 @@ class ConnectIQQueryWorker(
                                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
                             }
                             
-                            // Show notification for user to tap (Android 10+ restriction workaround)
-                            val fullScreenPendingIntent = PendingIntent.getActivity(
+                            val pendingIntent = PendingIntent.getActivity(
                                 applicationContext,
                                 999,
                                 openIntent,
@@ -347,14 +339,26 @@ class ConnectIQQueryWorker(
                                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                                 .setContentTitle("Garmin Activity Listener")
                                 .setContentText("Tap to open")
-                                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                                .setCategory(NotificationCompat.CATEGORY_CALL)
+                                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                                .setCategory(NotificationCompat.CATEGORY_SERVICE)
                                 .setAutoCancel(true)
-                                .setContentIntent(fullScreenPendingIntent)
-                                .setFullScreenIntent(fullScreenPendingIntent, true)
+                                .setContentIntent(pendingIntent)
+                                .setSilent(true)
+                                .setOnlyAlertOnce(true)
                                 .build()
                             
                             notificationManager.notify(9998, notification)
+                            
+                            try {
+                                val statusBarService = applicationContext.getSystemService(Context.STATUS_BAR_SERVICE)
+                                val statusBarManager = Class.forName("android.app.StatusBarManager")
+                                val expand = statusBarManager.getMethod("expandNotificationsPanel")
+                                expand.invoke(statusBarService)
+                                Log.i(TAG, "Notification shade expanded")
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Could not expand notification shade: ${e.message}")
+                            }
+                            
                             Log.i(TAG, "Open GUI notification shown")
                         } catch (e: Exception) {
                             Log.e(TAG, "Failed to open GUI: ${e.message}", e)

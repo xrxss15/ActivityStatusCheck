@@ -12,6 +12,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
 
     <application
         android:allowBackup="true"
@@ -36,8 +37,6 @@
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
             android:excludeFromRecents="true"
             android:noHistory="true" />
-
-        <!-- NO BroadcastReceiver - Worker handles everything at runtime with RECEIVER_EXPORTED -->
 
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"

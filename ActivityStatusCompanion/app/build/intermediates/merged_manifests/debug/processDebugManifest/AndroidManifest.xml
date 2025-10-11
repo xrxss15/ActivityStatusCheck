@@ -8,28 +8,15 @@
         android:minSdkVersion="24"
         android:targetSdkVersion="34" />
 
-    <!-- Location permission required for BLE scanning (Android requirement) -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-
-    <!-- Bluetooth permissions (Android 11 and below) -->
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
-
-    <!-- Bluetooth permissions (Android 12+) -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-
-    <!-- Notification permission (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-
-    <!-- Foreground service permissions -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-
-    <!-- Wake lock for critical operations -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-
-    <!-- Request ignore battery optimizations -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -53,8 +40,6 @@
         android:label="Garmin Activity Listener"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light" >
-
-        <!-- Main Activity -->
         <activity
             android:name="net.xrxss15.MainActivity"
             android:exported="true"
@@ -65,8 +50,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <!-- Invisible activity for SDK recovery -->
         <activity
             android:name="net.xrxss15.SdkInitActivity"
             android:excludeFromRecents="true"
@@ -74,19 +57,8 @@
             android:noHistory="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
-        <!-- Broadcast Receiver for Tasker integration -->
-        <receiver
-            android:name="net.xrxss15.ActivityStatusCheckReceiver"
-            android:enabled="true"
-            android:exported="true" >
-            <intent-filter>
-                <action android:name="net.xrxss15.TERMINATE" />
-                <action android:name="net.xrxss15.OPEN_GUI" />
-                <action android:name="net.xrxss15.CLOSE_GUI" />
-            </intent-filter>
-        </receiver>
+        <!-- NO BroadcastReceiver declared - everything handled in Worker at runtime -->
 
-        <!-- WorkManager's SystemForegroundService -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:directBootAware="false"

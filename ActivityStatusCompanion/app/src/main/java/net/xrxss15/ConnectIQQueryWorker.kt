@@ -38,8 +38,14 @@ class ConnectIQQueryWorker(
         private const val SDK_INIT_WAIT_MS = 30_000L
         private const val SDK_CHECK_INTERVAL_MS = 500L
         private const val MAX_MESSAGE_HISTORY = 100
+        
+        // Action constants
+        const val ACTION_EVENT = "net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT"
         const val ACTION_REQUEST_HISTORY = "net.xrxss15.REQUEST_HISTORY"
         const val ACTION_PING = "net.xrxss15.PING"
+        const val ACTION_TERMINATE = "net.xrxss15.TERMINATE"
+        const val ACTION_OPEN_GUI = "net.xrxss15.OPEN_GUI"
+        const val ACTION_CLOSE_GUI = "net.xrxss15.CLOSE_GUI"
     }
 
     private val connectIQService = ConnectIQService.getInstance()
@@ -49,7 +55,7 @@ class ConnectIQQueryWorker(
     private lateinit var notificationManager: NotificationManager
     private val stateMutex = Mutex()
     private val eventHistory = mutableListOf<String>()
-    private var internalReceiver: BroadcastReceiver? = null
+    private var controlReceiver: BroadcastReceiver? = null
     private var previousDeviceList = emptyList<String>()
     private var workerStartTime: Long = 0
 
@@ -79,7 +85,7 @@ class ConnectIQQueryWorker(
 
             Log.i(TAG, "SDK confirmed initialized")
 
-            registerInternalReceiver()
+            registerControlReceiver()
 
             connectIQService.setMessageCallback { payload, deviceName, _ ->
                 CoroutineScope(Dispatchers.Main).launch {
@@ -171,7 +177,7 @@ class ConnectIQQueryWorker(
             Result.failure()
         } finally {
             Log.i(TAG, "Worker finally block")
-            unregisterInternalReceiver()
+            unregisterControlReceiver()
             connectIQService.setMessageCallback(null)
             connectIQService.setDeviceChangeCallback(null)
         }
@@ -225,7 +231,7 @@ class ConnectIQQueryWorker(
             val activity = parts[2]
             val duration = parts[3].toInt()
 
-            val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
+            val intent = Intent(ACTION_EVENT).apply {
                 addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
                 putExtra("type", eventType)
                 putExtra("device", deviceName)
@@ -242,7 +248,7 @@ class ConnectIQQueryWorker(
 
     private fun sendConnectionBroadcast(deviceName: String, connected: Boolean, receiveTime: Long) {
         try {
-            val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
+            val intent = Intent(ACTION_EVENT).apply {
                 addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
                 putExtra("type", if (connected) "Connected" else "Disconnected")
                 putExtra("device", deviceName)
@@ -255,9 +261,10 @@ class ConnectIQQueryWorker(
         }
     }
 
-    private fun registerInternalReceiver() {
-        internalReceiver = object : BroadcastReceiver() {
+    private fun registerControlReceiver() {
+        controlReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
+                Log.i(TAG, "Received action: ${intent?.action}")
                 when (intent?.action) {
                     ACTION_REQUEST_HISTORY -> {
                         Log.i(TAG, "History request received")
@@ -269,7 +276,7 @@ class ConnectIQQueryWorker(
                             history.forEach { eventJson ->
                                 try {
                                     val event = JSONObject(eventJson)
-                                    val responseIntent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
+                                    val responseIntent = Intent(ACTION_EVENT).apply {
                                         setPackage(applicationContext.packageName)
                                         putExtra("type", event.getString("type"))
                                         putExtra("receive_time", event.getLong("receive_time"))
@@ -297,17 +304,45 @@ class ConnectIQQueryWorker(
                     ACTION_PING -> {
                         Log.i(TAG, "Ping received, sending Pong...")
                         try {
-                            val pongIntent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
+                            val pongIntent = Intent(ACTION_EVENT).apply {
                                 addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
                                 putExtra("type", "Pong")
                                 putExtra("worker_start_time", workerStartTime)
                                 putExtra("receive_time", System.currentTimeMillis())
                             }
                             applicationContext.sendBroadcast(pongIntent)
-                            Log.i(TAG, "Pong broadcast sent successfully - action: ${ActivityStatusCheckReceiver.ACTION_EVENT}, worker_start_time: $workerStartTime")
+                            Log.i(TAG, "Pong sent: worker_start_time=$workerStartTime")
                         } catch (e: Exception) {
                             Log.e(TAG, "Failed to send Pong: ${e.message}", e)
                         }
+                    }
+                    ACTION_TERMINATE -> {
+                        Log.i(TAG, "Terminate received - stopping worker")
+                        sendTerminatedBroadcast("Tasker terminate")
+                        ConnectIQService.resetInstance()
+                        android.os.Process.killProcess(android.os.Process.myPid())
+                    }
+                    ACTION_OPEN_GUI -> {
+                        Log.i(TAG, "Open GUI received")
+                        try {
+                            val openIntent = Intent(context, MainActivity::class.java).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                            }
+                            context?.startActivity(openIntent)
+                            Log.i(TAG, "MainActivity started")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to start MainActivity: ${e.message}", e)
+                        }
+                    }
+                    ACTION_CLOSE_GUI -> {
+                        Log.i(TAG, "Close GUI received - sending broadcast to MainActivity")
+                        val closeIntent = Intent(ACTION_EVENT).apply {
+                            addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
+                            putExtra("type", "CloseGUI")
+                            putExtra("receive_time", System.currentTimeMillis())
+                        }
+                        applicationContext.sendBroadcast(closeIntent)
+                        Log.i(TAG, "CloseGUI broadcast sent")
                     }
                 }
             }
@@ -316,26 +351,29 @@ class ConnectIQQueryWorker(
         val filter = IntentFilter().apply {
             addAction(ACTION_REQUEST_HISTORY)
             addAction(ACTION_PING)
+            addAction(ACTION_TERMINATE)
+            addAction(ACTION_OPEN_GUI)
+            addAction(ACTION_CLOSE_GUI)
         }
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            applicationContext.registerReceiver(internalReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            applicationContext.registerReceiver(controlReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
-            applicationContext.registerReceiver(internalReceiver, filter)
+            applicationContext.registerReceiver(controlReceiver, filter)
         }
-        Log.i(TAG, "Internal receiver registered (RECEIVER_NOT_EXPORTED)")
+        Log.i(TAG, "Control receiver registered (RECEIVER_NOT_EXPORTED) for all actions")
     }
 
-    private fun unregisterInternalReceiver() {
-        internalReceiver?.let {
+    private fun unregisterControlReceiver() {
+        controlReceiver?.let {
             try {
                 applicationContext.unregisterReceiver(it)
-                Log.i(TAG, "Internal receiver unregistered")
+                Log.i(TAG, "Control receiver unregistered")
             } catch (e: Exception) {
                 Log.e(TAG, "Error unregistering receiver: ${e.message}")
             }
         }
-        internalReceiver = null
+        controlReceiver = null
     }
 
     private suspend fun updateNotification() {
@@ -376,8 +414,8 @@ class ConnectIQQueryWorker(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val exitIntent = Intent(ActivityStatusCheckReceiver.ACTION_TERMINATE).apply {
-            setClass(applicationContext, ActivityStatusCheckReceiver::class.java)
+        val exitIntent = Intent(ACTION_TERMINATE).apply {
+            setPackage(applicationContext.packageName)
         }
         val exitPendingIntent = PendingIntent.getBroadcast(
             applicationContext, 1, exitIntent,
@@ -444,7 +482,7 @@ class ConnectIQQueryWorker(
 
     private fun sendCreatedBroadcast(deviceNames: List<String>, receiveTime: Long) {
         try {
-            val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
+            val intent = Intent(ACTION_EVENT).apply {
                 addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
                 putExtra("type", "Created")
                 putExtra("timestamp", System.currentTimeMillis())
@@ -466,7 +504,7 @@ class ConnectIQQueryWorker(
 
     private fun sendTerminatedBroadcast(reason: String) {
         try {
-            val intent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
+            val intent = Intent(ACTION_EVENT).apply {
                 addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
                 putExtra("type", "Terminated")
                 putExtra("reason", reason)

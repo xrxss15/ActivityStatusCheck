@@ -2,28 +2,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Location permission required for BLE scanning (Android requirement) -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    
-    <!-- Bluetooth permissions (Android 11 and below) -->
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
-    
-    <!-- Bluetooth permissions (Android 12+) -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    
-    <!-- Notification permission (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    
-    <!-- Foreground service permissions -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    
-    <!-- Wake lock for critical operations -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    
-    <!-- Request ignore battery optimizations -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
@@ -33,7 +20,6 @@
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light">
 
-        <!-- Main Activity -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -44,7 +30,6 @@
             </intent-filter>
         </activity>
 
-        <!-- Invisible activity for SDK recovery -->
         <activity
             android:name=".SdkInitActivity"
             android:exported="false"
@@ -52,19 +37,8 @@
             android:excludeFromRecents="true"
             android:noHistory="true" />
 
-        <!-- Broadcast Receiver for Tasker integration -->
-        <receiver
-            android:name=".ActivityStatusCheckReceiver"
-            android:enabled="true"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="net.xrxss15.TERMINATE" />
-                <action android:name="net.xrxss15.OPEN_GUI" />
-                <action android:name="net.xrxss15.CLOSE_GUI" />
-            </intent-filter>
-        </receiver>
+        <!-- NO BroadcastReceiver declared - everything handled in Worker at runtime -->
 
-        <!-- WorkManager's SystemForegroundService -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"

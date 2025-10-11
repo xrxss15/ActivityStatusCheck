@@ -18,7 +18,7 @@ import android.content.pm.PackageManager
 class ConnectIQService private constructor() {
 
     companion object {
-        private const val APP_UUID = "3cdfe926-d53d-4f94-b6d1-7f1dac32156e"
+        private const val APP_UUID = "a3682e8a-8c10-4618-9f36-fd52877df567"
         private const val TAG = "GarminActivityListener.Service"
         private const val DISCOVERY_DELAY_MS = 500L
         private const val KNOWN_SIMULATOR_ID = 12345L

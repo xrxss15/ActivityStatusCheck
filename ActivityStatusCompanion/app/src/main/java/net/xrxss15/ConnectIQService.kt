@@ -243,8 +243,8 @@ class ConnectIQService private constructor() {
                 val deviceName = knownDeviceName
                 val timestamp = System.currentTimeMillis()
                 log("Message from $deviceName: $payload")
+                // Only call the callback, Worker will handle broadcast
                 messageCallback?.invoke(payload, deviceName, timestamp)
-                sendMessageBroadcast(payload, deviceName)
             }
         }
 
@@ -254,41 +254,6 @@ class ConnectIQService private constructor() {
             log("Registered listener for $knownDeviceName")
         } catch (e: Exception) {
             logError("Failed to register app listener", e)
-        }
-    }
-
-    private fun sendMessageBroadcast(payload: String, deviceName: String) {
-        val context = appContext ?: return
-        val parts = payload.split("|")
-        if (parts.size < 4) {
-            logError("Invalid payload format: $payload")
-            return
-        }
-
-        val eventType = when (parts[0]) {
-            "STARTED", "ACTIVITY_STARTED" -> "Started"
-            "STOPPED", "ACTIVITY_STOPPED" -> "Stopped"
-            else -> {
-                logError("Unknown event type: ${parts[0]}")
-                return
-            }
-        }
-
-        try {
-            val time = parts[1].toLong()
-            val activity = parts[2]
-            val duration = parts[3].toInt()
-            val intent = Intent("net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT").apply {
-                putExtra("type", eventType)
-                putExtra("device", deviceName)
-                putExtra("time", time)
-                putExtra("activity", activity)
-                putExtra("duration", duration)
-            }
-            context.sendBroadcast(intent)
-            log("Broadcast sent: $eventType from $deviceName")
-        } catch (e: Exception) {
-            logError("Failed to parse message", e)
         }
     }
 

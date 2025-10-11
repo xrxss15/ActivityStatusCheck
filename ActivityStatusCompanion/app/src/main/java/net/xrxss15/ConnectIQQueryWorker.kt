@@ -59,6 +59,7 @@ class ConnectIQQueryWorker(
     private var controlReceiver: BroadcastReceiver? = null
     private var previousDeviceList = emptyList<String>()
     private var workerStartTime: Long = 0
+    private var broadcastCounter = 0
 
     override suspend fun doWork(): Result {
         Log.i(TAG, "Worker starting")
@@ -188,6 +189,11 @@ class ConnectIQQueryWorker(
         }
     }
 
+    private fun getNextBroadcastId(): String {
+        broadcastCounter++
+        return "w$broadcastCounter"
+    }
+
     private fun storeActivityEvent(payload: String, deviceName: String, receiveTime: Long) {
         try {
             val parts = payload.split("|")
@@ -238,8 +244,9 @@ class ConnectIQQueryWorker(
             val activity = parts[2]
             val duration = parts[3].toInt()
 
+            val broadcastId = getNextBroadcastId()
             val intent = Intent(ACTION_EVENT).apply {
-                addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
+                putExtra("broadcast_id", broadcastId)
                 putExtra("type", eventType)
                 putExtra("device", deviceName)
                 putExtra("time", time)
@@ -248,6 +255,7 @@ class ConnectIQQueryWorker(
                 putExtra("receive_time", receiveTime)
             }
             applicationContext.sendBroadcast(intent)
+            Log.i(TAG, "[$broadcastId] Activity broadcast sent: $eventType")
         } catch (e: Exception) {
             Log.e(TAG, "Error sending activity broadcast: ${e.message}")
         }
@@ -255,15 +263,16 @@ class ConnectIQQueryWorker(
 
     private fun sendDeviceListBroadcast(devices: List<String>, receiveTime: Long) {
         try {
+            val broadcastId = getNextBroadcastId()
             val intent = Intent(ACTION_EVENT).apply {
-                addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
+                putExtra("broadcast_id", broadcastId)
                 putExtra("type", "DeviceList")
                 putExtra("devices", devices.toTypedArray())
                 putExtra("device_count", devices.size)
                 putExtra("receive_time", receiveTime)
             }
             applicationContext.sendBroadcast(intent)
-            Log.i(TAG, "DeviceList broadcast sent: ${devices.size} device(s) - ${devices.joinToString(", ")}")
+            Log.i(TAG, "[$broadcastId] DeviceList broadcast sent: ${devices.size} device(s) - ${devices.joinToString(", ")}")
         } catch (e: Exception) {
             Log.e(TAG, "DeviceList broadcast failed", e)
         }
@@ -318,14 +327,15 @@ class ConnectIQQueryWorker(
                     ACTION_PING -> {
                         Log.i(TAG, "Ping received, sending Pong...")
                         try {
+                            val broadcastId = getNextBroadcastId()
                             val pongIntent = Intent(ACTION_EVENT).apply {
-                                addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
+                                putExtra("broadcast_id", broadcastId)
                                 putExtra("type", "Pong")
                                 putExtra("worker_start_time", workerStartTime)
                                 putExtra("receive_time", System.currentTimeMillis())
                             }
                             applicationContext.sendBroadcast(pongIntent)
-                            Log.i(TAG, "Pong sent: worker_start_time=$workerStartTime")
+                            Log.i(TAG, "[$broadcastId] Pong sent: worker_start_time=$workerStartTime")
                         } catch (e: Exception) {
                             Log.e(TAG, "Failed to send Pong: ${e.message}", e)
                         }
@@ -524,14 +534,15 @@ class ConnectIQQueryWorker(
 
     private fun sendCreatedBroadcast() {
         try {
+            val broadcastId = getNextBroadcastId()
             val intent = Intent(ACTION_EVENT).apply {
-                addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
+                putExtra("broadcast_id", broadcastId)
                 putExtra("type", "Created")
                 putExtra("worker_start_time", workerStartTime)
                 putExtra("receive_time", System.currentTimeMillis())
             }
             applicationContext.sendBroadcast(intent)
-            Log.i(TAG, "Created broadcast sent")
+            Log.i(TAG, "[$broadcastId] Created broadcast sent")
         } catch (e: Exception) {
             Log.e(TAG, "Created broadcast failed", e)
         }
@@ -539,14 +550,15 @@ class ConnectIQQueryWorker(
 
     private fun sendTerminatedBroadcast(reason: String) {
         try {
+            val broadcastId = getNextBroadcastId()
             val intent = Intent(ACTION_EVENT).apply {
-                addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
+                putExtra("broadcast_id", broadcastId)
                 putExtra("type", "Terminated")
                 putExtra("reason", reason)
                 putExtra("receive_time", System.currentTimeMillis())
             }
             applicationContext.sendBroadcast(intent)
-            Log.i(TAG, "Terminated broadcast sent: $reason")
+            Log.i(TAG, "[$broadcastId] Terminated broadcast sent: $reason")
         } catch (e: Exception) {
             Log.e(TAG, "Terminated broadcast failed", e)
         }

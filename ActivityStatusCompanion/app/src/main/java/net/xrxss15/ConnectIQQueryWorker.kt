@@ -39,6 +39,7 @@ class ConnectIQQueryWorker(
         private const val SDK_INIT_WAIT_MS = 30_000L
         private const val SDK_CHECK_INTERVAL_MS = 500L
         private const val MAX_MESSAGE_HISTORY = 100
+        private const val NOTIFICATION_UPDATE_THROTTLE_MS = 2000L
         
         // Action constants
         const val ACTION_EVENT = "net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT"
@@ -55,10 +56,12 @@ class ConnectIQQueryWorker(
     private var lastMessageTime: Long = 0
     private lateinit var notificationManager: NotificationManager
     private val stateMutex = Mutex()
+    private val notificationMutex = Mutex()
     private val eventHistory = mutableListOf<String>()
     private var controlReceiver: BroadcastReceiver? = null
     private var previousDeviceList = emptyList<String>()
     private var workerStartTime: Long = 0
+    private var lastNotificationUpdate = 0L
 
     override suspend fun doWork(): Result {
         Log.i(TAG, "Worker starting")
@@ -89,7 +92,7 @@ class ConnectIQQueryWorker(
             registerControlReceiver()
 
             connectIQService.setMessageCallback { payload, deviceName, _ ->
-                CoroutineScope(Dispatchers.Main).launch {
+                CoroutineScope(Dispatchers.IO).launch {
                     try {
                         val receiveTime = System.currentTimeMillis()
                         stateMutex.withLock {
@@ -101,7 +104,7 @@ class ConnectIQQueryWorker(
                         sendActivityBroadcast(payload, deviceName, receiveTime)
                         updateNotification()
                     } catch (e: Exception) {
-                        Log.e(TAG, "Error in message callback: ${e.message}")
+                        Log.e(TAG, "Error in message callback", e)
                     }
                 }
             }
@@ -119,7 +122,7 @@ class ConnectIQQueryWorker(
                         
                         stateMutex.withLock {
                             // Only send DeviceList if list actually changed
-                            if (devices.sorted() != previousDeviceList.sorted()) {
+                            if (devices.toSet() != previousDeviceList.toSet()) {
                                 connectedDeviceNames = devices
                                 previousDeviceList = devices
                                 
@@ -133,7 +136,7 @@ class ConnectIQQueryWorker(
 
                         updateNotification()
                     } catch (e: Exception) {
-                        Log.e(TAG, "Error in device change callback: ${e.message}")
+                        Log.e(TAG, "Error in device change callback", e)
                     }
                 }
             }
@@ -206,7 +209,7 @@ class ConnectIQQueryWorker(
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error storing activity event: ${e.message}")
+            Log.e(TAG, "Error storing activity event", e)
         }
     }
 
@@ -224,7 +227,7 @@ class ConnectIQQueryWorker(
                 eventHistory.removeAt(0)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error storing device list event: ${e.message}")
+            Log.e(TAG, "Error storing device list event", e)
         }
     }
 
@@ -249,7 +252,7 @@ class ConnectIQQueryWorker(
             applicationContext.sendBroadcast(intent)
             Log.i(TAG, "Activity broadcast sent: $eventType")
         } catch (e: Exception) {
-            Log.e(TAG, "Error sending activity broadcast: ${e.message}")
+            Log.e(TAG, "Error sending activity broadcast", e)
         }
     }
 
@@ -275,7 +278,7 @@ class ConnectIQQueryWorker(
                 when (intent?.action) {
                     ACTION_REQUEST_HISTORY -> {
                         Log.i(TAG, "History request received")
-                        CoroutineScope(Dispatchers.Main).launch {
+                        CoroutineScope(Dispatchers.IO).launch {
                             val history = stateMutex.withLock {
                                 eventHistory.toList()
                             }
@@ -308,7 +311,7 @@ class ConnectIQQueryWorker(
                                     }
                                     applicationContext.sendBroadcast(responseIntent)
                                 } catch (e: Exception) {
-                                    Log.e(TAG, "Error parsing history event: ${e.message}")
+                                    Log.e(TAG, "Error parsing history event", e)
                                 }
                             }
                             Log.i(TAG, "History sent (${history.size} events)")
@@ -325,7 +328,7 @@ class ConnectIQQueryWorker(
                             applicationContext.sendBroadcast(pongIntent)
                             Log.i(TAG, "Pong sent: worker_start_time=$workerStartTime")
                         } catch (e: Exception) {
-                            Log.e(TAG, "Failed to send Pong: ${e.message}", e)
+                            Log.e(TAG, "Failed to send Pong", e)
                         }
                     }
                     ACTION_TERMINATE -> {
@@ -368,12 +371,12 @@ class ConnectIQQueryWorker(
                                 expand.invoke(statusBarService)
                                 Log.i(TAG, "Notification shade expanded")
                             } catch (e: Exception) {
-                                Log.w(TAG, "Could not expand notification shade: ${e.message}")
+                                Log.w(TAG, "Could not expand notification shade", e)
                             }
                             
                             Log.i(TAG, "Open GUI notification shown")
                         } catch (e: Exception) {
-                            Log.e(TAG, "Failed to open GUI: ${e.message}", e)
+                            Log.e(TAG, "Failed to open GUI", e)
                         }
                     }
                     ACTION_CLOSE_GUI -> {
@@ -411,16 +414,24 @@ class ConnectIQQueryWorker(
             try {
                 applicationContext.unregisterReceiver(it)
                 Log.i(TAG, "Control receiver unregistered")
-            } catch (e: Exception) {
-                Log.e(TAG, "Error unregistering receiver: ${e.message}")
+            } catch (e: IllegalArgumentException) {
+                Log.w(TAG, "Receiver already unregistered", e)
             }
         }
         controlReceiver = null
     }
 
     private suspend fun updateNotification() {
-        val notification = buildNotification()
-        notificationManager.notify(NOTIFICATION_ID, notification)
+        notificationMutex.withLock {
+            val now = System.currentTimeMillis()
+            if (now - lastNotificationUpdate < NOTIFICATION_UPDATE_THROTTLE_MS) {
+                return // Skip update if too soon
+            }
+            lastNotificationUpdate = now
+            
+            val notification = buildNotification()
+            notificationManager.notify(NOTIFICATION_ID, notification)
+        }
     }
 
     private fun parseMessage(payload: String, deviceName: String): String {
@@ -490,19 +501,19 @@ class ConnectIQQueryWorker(
     }
 
     private fun buildBigText(): String {
-        val sb = StringBuilder()
-        if (connectedDeviceNames.isEmpty()) {
-            sb.append("Devices: None\n")
-        } else {
-            sb.append("Devices:\n")
-            connectedDeviceNames.forEach { sb.append(" - $it\n") }
+        return buildString {
+            if (connectedDeviceNames.isEmpty()) {
+                append("Devices: None\n")
+            } else {
+                append("Devices:\n")
+                connectedDeviceNames.forEach { append(" - $it\n") }
+            }
+            if (lastMessage != null && lastMessageTime > 0) {
+                append("\nLast: $lastMessage\n${formatTime(lastMessageTime)}")
+            } else {
+                append("\nWaiting for activity events...")
+            }
         }
-        if (lastMessage != null && lastMessageTime > 0) {
-            sb.append("\nLast: $lastMessage\n${formatTime(lastMessageTime)}")
-        } else {
-            sb.append("\nWaiting for activity events...")
-        }
-        return sb.toString()
     }
 
     private fun createNotificationChannel() {

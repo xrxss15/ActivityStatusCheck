@@ -8,7 +8,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -33,7 +32,7 @@ class MainActivity : Activity() {
     private lateinit var logView: TextView
     private lateinit var scroll: ScrollView
     private lateinit var statusText: TextView
-    private lateinit var batteryText: TextView
+    private lateinit var batteryOptText: TextView
     private lateinit var batteryBtn: Button
     private lateinit var copyBtn: Button
     private lateinit var clearBtn: Button
@@ -42,14 +41,15 @@ class MainActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private var messageReceiver: BroadcastReceiver? = null
     private val connectIQService = ConnectIQService.getInstance()
-    private var batteryUpdateRunnable: Runnable? = null
 
     companion object {
         private const val TAG = "MainActivity"
         private const val PERMISSION_REQUEST_CODE = 100
-        private const val BATTERY_UPDATE_INTERVAL_MS = 30_000L
         private const val STATUS_UPDATE_DELAY_MS = 500L
         private const val STATUS_UPDATE_INTERVAL_MS = 1_000L
+        private const val HISTORY_REQUEST_DELAY_MS = 500L
+        private const val WORKER_STOP_CHECK_INTERVAL_MS = 100L
+        private const val WORKER_STOP_MAX_ATTEMPTS = 20
 
         private fun ts(): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
     }
@@ -67,14 +67,7 @@ class MainActivity : Activity() {
         }
 
         updateServiceStatus()
-        updateBatteryStats()
-        batteryUpdateRunnable = object : Runnable {
-            override fun run() {
-                updateBatteryStats()
-                handler.postDelayed(this, BATTERY_UPDATE_INTERVAL_MS)
-            }
-        }
-        handler.postDelayed(batteryUpdateRunnable!!, BATTERY_UPDATE_INTERVAL_MS)
+        updateBatteryOptimizationStatus()
     }
 
     override fun onNewIntent(intent: Intent?) {
@@ -82,12 +75,13 @@ class MainActivity : Activity() {
         setIntent(intent)
         appendLog("[${ts()}] App reopened")
         updateServiceStatus()
+        updateBatteryOptimizationStatus()
         
         if (isListenerRunning()) {
             handler.postDelayed({
                 val historyIntent = Intent(ConnectIQQueryWorker.ACTION_REQUEST_HISTORY)
                 sendBroadcast(historyIntent)
-            }, 500)
+            }, HISTORY_REQUEST_DELAY_MS)
         }
     }
 
@@ -108,7 +102,7 @@ class MainActivity : Activity() {
                     handler.postDelayed({
                         val historyIntent = Intent(ConnectIQQueryWorker.ACTION_REQUEST_HISTORY)
                         sendBroadcast(historyIntent)
-                    }, 500)
+                    }, HISTORY_REQUEST_DELAY_MS)
                 }
             }
         }
@@ -137,29 +131,18 @@ class MainActivity : Activity() {
         }, STATUS_UPDATE_INTERVAL_MS)
     }
 
-    private fun updateBatteryStats() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            try {
-                val batteryManager = getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
-                if (batteryManager == null) {
-                    batteryText.text = "Battery stats unavailable"
-                    return
-                }
-
-                val batteryPct = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-                val stats = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    "Battery: $batteryPct% | App usage: Check system battery settings"
-                } else {
-                    "Battery: $batteryPct%"
-                }
-
-                batteryText.text = stats
-            } catch (e: Exception) {
-                batteryText.text = "Battery stats unavailable"
-                Log.e(TAG, "Failed to get battery stats: ${e.message}")
+    private fun updateBatteryOptimizationStatus() {
+        if (!::batteryOptText.isInitialized) return
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val isOptimized = !isBatteryOptimizationDisabled()
+            batteryOptText.text = if (isOptimized) {
+                "Battery: Optimization enabled (tap to change)"
+            } else {
+                "Battery: Optimization disabled"
             }
         } else {
-            batteryText.text = "Battery stats not supported"
+            batteryOptText.text = "Battery: Optimization not available"
         }
     }
 
@@ -181,21 +164,22 @@ class MainActivity : Activity() {
             }
             addView(statusText)
 
-            batteryText = TextView(this@MainActivity).apply {
-                text = "Battery: --"
+            batteryOptText = TextView(this@MainActivity).apply {
+                text = "Battery: Checking..."
                 textSize = 14f
                 setPadding(0, 4, 0, 8)
             }
-            addView(batteryText)
+            addView(batteryOptText)
 
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 8, 0, 8)
 
                 batteryBtn = Button(this@MainActivity).apply {
-                    text = "Battery"
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    text = "Battery Settings"
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.5f)
                     setOnClickListener {
+                        updateBatteryOptimizationStatus()
                         requestBatteryOptimizationExemption()
                     }
                 }
@@ -273,16 +257,16 @@ class MainActivity : Activity() {
             override fun run() {
                 checkCount++
                 val running = isListenerRunning()
-                if (!running || checkCount >= 20) {
+                if (!running || checkCount >= WORKER_STOP_MAX_ATTEMPTS) {
                     ConnectIQService.resetInstance()
                     finishAndRemoveTask()
                     android.os.Process.killProcess(android.os.Process.myPid())
                 } else {
-                    handler.postDelayed(this, 100)
+                    handler.postDelayed(this, WORKER_STOP_CHECK_INTERVAL_MS)
                 }
             }
         }
-        handler.postDelayed(checkRunnable, 100)
+        handler.postDelayed(checkRunnable, WORKER_STOP_CHECK_INTERVAL_MS)
     }
 
     private fun closeGUI() {
@@ -296,7 +280,7 @@ class MainActivity : Activity() {
             val workInfos = workManager.getWorkInfosForUniqueWork("garmin_listener").get()
             workInfos.any { it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED }
         } catch (e: Exception) {
-            Log.e(TAG, "Error checking worker status: ${e.message}")
+            Log.e(TAG, "Error checking worker status", e)
             false
         }
     }
@@ -329,6 +313,7 @@ class MainActivity : Activity() {
                     startActivity(intent)
                     appendLog("[${ts()}] Opening battery settings...")
                 } catch (e: Exception) {
+                    Log.e(TAG, "Failed to open battery settings", e)
                     appendLog("[${ts()}] Failed to open battery settings")
                 }
             } else {
@@ -448,18 +433,17 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         updateServiceStatus()
-        updateBatteryStats()
+        updateBatteryOptimizationStatus()
     }
 
     override fun onDestroy() {
-        batteryUpdateRunnable?.let { handler.removeCallbacks(it) }
-        batteryUpdateRunnable = null
+        handler.removeCallbacksAndMessages(null)
         super.onDestroy()
         messageReceiver?.let {
             try {
                 unregisterReceiver(it)
             } catch (e: IllegalArgumentException) {
-                // Already unregistered
+                Log.w(TAG, "Receiver already unregistered", e)
             }
         }
         messageReceiver = null

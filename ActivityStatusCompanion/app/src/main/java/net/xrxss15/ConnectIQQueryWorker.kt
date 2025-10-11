@@ -117,21 +117,17 @@ class ConnectIQQueryWorker(
                             .map { it.friendlyName ?: "Unknown" }
                         
                         stateMutex.withLock {
-                            val added = devices.filter { it !in previousDeviceList }
-                            val removed = previousDeviceList.filter { it !in devices }
-                            
-                            added.forEach { device ->
-                                storeConnectionEvent(device, true, receiveTime)
-                                sendConnectionBroadcast(device, true, receiveTime)
+                            // Only send DeviceList if list actually changed
+                            if (devices.sorted() != previousDeviceList.sorted()) {
+                                connectedDeviceNames = devices
+                                previousDeviceList = devices
+                                
+                                // Store device list change in history
+                                storeDeviceListEvent(devices, receiveTime)
+                                
+                                // Send DeviceList broadcast
+                                sendDeviceListBroadcast(devices, receiveTime)
                             }
-                            
-                            removed.forEach { device ->
-                                storeConnectionEvent(device, false, receiveTime)
-                                sendConnectionBroadcast(device, false, receiveTime)
-                            }
-                            
-                            connectedDeviceNames = devices
-                            previousDeviceList = devices
                         }
 
                         updateNotification()
@@ -150,22 +146,20 @@ class ConnectIQQueryWorker(
             
             val startupTime = System.currentTimeMillis()
             
-            // Send Connected broadcasts for initial devices
             stateMutex.withLock {
                 connectedDeviceNames = initialDevices
-                
-                initialDevices.forEach { device ->
-                    storeConnectionEvent(device, true, startupTime)
-                    sendConnectionBroadcast(device, true, startupTime)
-                }
-                
-                // Set previousDeviceList AFTER sending initial Connected broadcasts
                 previousDeviceList = initialDevices
+                
+                // Store initial device list in history
+                storeDeviceListEvent(initialDevices, startupTime)
             }
 
+            // Send initial DeviceList broadcast
+            sendDeviceListBroadcast(initialDevices, startupTime)
+            
             updateNotification()
             
-            // Now register listeners - device callback won't send duplicates
+            // Now register listeners - device callback will send DeviceList on changes
             connectIQService.registerListenersForAllDevices()
 
             Log.i(TAG, "Listening for events (${initialDevices.size} device(s))")
@@ -215,11 +209,12 @@ class ConnectIQQueryWorker(
         }
     }
 
-    private fun storeConnectionEvent(deviceName: String, connected: Boolean, receiveTime: Long) {
+    private fun storeDeviceListEvent(devices: List<String>, receiveTime: Long) {
         try {
             val eventData = JSONObject().apply {
-                put("type", if (connected) "Connected" else "Disconnected")
-                put("device", deviceName)
+                put("type", "DeviceList")
+                put("devices", JSONObject(mapOf("array" to devices)))
+                put("device_count", devices.size)
                 put("receive_time", receiveTime)
             }
             eventHistory.add(eventData.toString())
@@ -227,7 +222,7 @@ class ConnectIQQueryWorker(
                 eventHistory.removeAt(0)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error storing connection event: ${e.message}")
+            Log.e(TAG, "Error storing device list event: ${e.message}")
         }
     }
 
@@ -256,18 +251,19 @@ class ConnectIQQueryWorker(
         }
     }
 
-    private fun sendConnectionBroadcast(deviceName: String, connected: Boolean, receiveTime: Long) {
+    private fun sendDeviceListBroadcast(devices: List<String>, receiveTime: Long) {
         try {
             val intent = Intent(ACTION_EVENT).apply {
                 addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
-                putExtra("type", if (connected) "Connected" else "Disconnected")
-                putExtra("device", deviceName)
+                putExtra("type", "DeviceList")
+                putExtra("devices", devices.toTypedArray())
+                putExtra("device_count", devices.size)
                 putExtra("receive_time", receiveTime)
             }
             applicationContext.sendBroadcast(intent)
-            Log.i(TAG, "Sent ${if (connected) "Connected" else "Disconnected"} broadcast for $deviceName")
+            Log.i(TAG, "DeviceList broadcast sent: ${devices.size} device(s) - ${devices.joinToString(", ")}")
         } catch (e: Exception) {
-            Log.e(TAG, "Error sending connection broadcast: ${e.message}")
+            Log.e(TAG, "DeviceList broadcast failed", e)
         }
     }
 
@@ -298,8 +294,16 @@ class ConnectIQQueryWorker(
                                                 putExtra("activity", event.getString("activity"))
                                                 putExtra("duration", event.getInt("duration"))
                                             }
-                                            "Connected", "Disconnected" -> {
-                                                putExtra("device", event.getString("device"))
+                                            "DeviceList" -> {
+                                                putExtra("device_count", event.getInt("device_count"))
+                                                // Extract devices array from nested JSON
+                                                val devicesJson = event.getJSONObject("devices")
+                                                val devicesArray = devicesJson.getJSONArray("array")
+                                                val devicesList = mutableListOf<String>()
+                                                for (i in 0 until devicesArray.length()) {
+                                                    devicesList.add(devicesArray.getString(i))
+                                                }
+                                                putExtra("devices", devicesList.toTypedArray())
                                             }
                                         }
                                     }

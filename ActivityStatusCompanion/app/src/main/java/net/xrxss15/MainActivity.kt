@@ -379,8 +379,7 @@ class MainActivity : Activity() {
                 appendLog("[${ts()}] Device $type: $device")
             }
             "Created" -> {
-                val deviceCount = intent.getIntExtra("device_count", 0)
-                appendLog("[${ts()}] WORKER STARTED - $deviceCount device(s)")
+                appendLog("[${ts()}] WORKER STARTED")
             }
             "Terminated" -> {
                 val reason = intent.getStringExtra("reason") ?: "Unknown"

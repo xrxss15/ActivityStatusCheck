@@ -32,6 +32,7 @@ class MainActivity : Activity() {
     private lateinit var logView: TextView
     private lateinit var scroll: ScrollView
     private lateinit var statusText: TextView
+    private lateinit var uptimeText: TextView
     private lateinit var batteryText: TextView
     private lateinit var batteryBtn: Button
     private lateinit var copyBtn: Button
@@ -41,6 +42,7 @@ class MainActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private var messageReceiver: BroadcastReceiver? = null
     private val connectIQService = ConnectIQService.getInstance()
+    private var workerStartTime: Long = 0
 
     companion object {
         private const val TAG = "MainActivity"
@@ -52,11 +54,24 @@ class MainActivity : Activity() {
         }
 
         @JvmStatic
+        private fun formatDateTime(timestamp: Long): String {
+            return SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(timestamp))
+        }
+
+        @JvmStatic
         private fun formatDuration(seconds: Int): String {
             val hours = seconds / 3600
             val minutes = (seconds % 3600) / 60
             val secs = seconds % 60
             return String.format("%02d:%02d:%02d", hours, minutes, secs)
+        }
+
+        @JvmStatic
+        private fun formatUptime(startTime: Long): String {
+            if (startTime == 0L) return "Unknown"
+            val now = System.currentTimeMillis()
+            val uptimeSeconds = ((now - startTime) / 1000).toInt()
+            return formatDuration(uptimeSeconds)
         }
     }
 
@@ -70,8 +85,15 @@ class MainActivity : Activity() {
         updateBatteryOptimizationStatus()
         
         if (isListenerRunning()) {
-            appendLog("Requesting event history...")
+            appendLog("Requesting worker status...")
             handler.postDelayed({
+                // Send Ping to get worker start time
+                val pingIntent = Intent(ConnectIQQueryWorker.ACTION_PING).apply {
+                    setPackage(packageName)
+                }
+                sendBroadcast(pingIntent)
+                
+                // Request history
                 val historyIntent = Intent(ConnectIQQueryWorker.ACTION_REQUEST_HISTORY).apply {
                     setPackage(packageName)
                 }
@@ -95,6 +117,11 @@ class MainActivity : Activity() {
         
         if (isListenerRunning()) {
             handler.postDelayed({
+                val pingIntent = Intent(ConnectIQQueryWorker.ACTION_PING).apply {
+                    setPackage(packageName)
+                }
+                sendBroadcast(pingIntent)
+                
                 val historyIntent = Intent(ConnectIQQueryWorker.ACTION_REQUEST_HISTORY).apply {
                     setPackage(packageName)
                 }
@@ -107,6 +134,7 @@ class MainActivity : Activity() {
         super.onResume()
         updateServiceStatus()
         updateBatteryOptimizationStatus()
+        updateUptimeDisplay()
     }
 
     private fun initializeAndStart() {
@@ -156,6 +184,14 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun updateUptimeDisplay() {
+        if (workerStartTime > 0) {
+            uptimeText.text = "Worker uptime: ${formatUptime(workerStartTime)}"
+        } else {
+            uptimeText.text = "Worker uptime: Unknown"
+        }
+    }
+
     private fun createUI() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -171,6 +207,12 @@ class MainActivity : Activity() {
                 setPadding(0, 8, 0, 0)
             }
             addView(statusText)
+            uptimeText = TextView(this@MainActivity).apply {
+                text = "Worker uptime: Unknown"
+                textSize = 14f
+                setPadding(0, 4, 0, 0)
+            }
+            addView(uptimeText)
             batteryText = TextView(this@MainActivity).apply {
                 text = "Battery optimization: Checking..."
                 textSize = 14f
@@ -338,6 +380,11 @@ class MainActivity : Activity() {
         val time = formatTime(receiveTime)
         
         when (type) {
+            "Pong" -> {
+                workerStartTime = intent.getLongExtra("worker_start_time", 0)
+                appendLog("[${formatTime(System.currentTimeMillis())}] Worker running since ${formatDateTime(workerStartTime)}")
+                updateUptimeDisplay()
+            }
             "Started" -> {
                 val device = intent.getStringExtra("device") ?: "Unknown"
                 val activity = intent.getStringExtra("activity") ?: "Unknown"
@@ -349,27 +396,28 @@ class MainActivity : Activity() {
                 val duration = intent.getIntExtra("duration", 0)
                 appendLog("[$time] $device: Stopped $activity (${formatDuration(duration)})")
             }
-            "DeviceList" -> {
-                val devices = intent.getStringExtra("devices") ?: ""
-                val deviceList = if (devices.isEmpty()) emptyList() else devices.split("/")
-                deviceList.forEach { device ->
-                    appendLog("[$time] $device: ${if (devices.isEmpty()) "Disconnected" else "Connected"}")
-                }
+            "Connected" -> {
+                val device = intent.getStringExtra("device") ?: "Unknown"
+                appendLog("[$time] $device: Connected")
+            }
+            "Disconnected" -> {
+                val device = intent.getStringExtra("device") ?: "Unknown"
+                appendLog("[$time] $device: Disconnected")
             }
             "Created" -> {
-                val devices = intent.getStringExtra("devices") ?: ""
-                appendLog("[$time] Worker started")
-                if (devices.isNotEmpty()) {
-                    devices.split("/").forEach { device ->
-                        appendLog("[$time] $device: Connected")
-                    }
-                }
+                workerStartTime = intent.getLongExtra("worker_start_time", 0)
+                val deviceCount = intent.getIntExtra("device_count", 0)
+                appendLog("[$time] Worker started ($deviceCount device(s))")
+                appendLog("[$time] Start time: ${formatDateTime(workerStartTime)}")
                 updateServiceStatus()
+                updateUptimeDisplay()
             }
             "Terminated" -> {
                 val reason = intent.getStringExtra("reason") ?: "Unknown"
                 appendLog("[$time] Worker stopped: $reason")
+                workerStartTime = 0
                 updateServiceStatus()
+                updateUptimeDisplay()
             }
             "CloseGUI" -> {
                 appendLog("[$time] Closing GUI via Tasker")

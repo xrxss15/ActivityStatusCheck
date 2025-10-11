@@ -141,21 +141,31 @@ class ConnectIQQueryWorker(
                 }
             }
 
-            // Send Created broadcast BEFORE registering devices
+            // Send Created broadcast first
             sendCreatedBroadcast()
 
-            // Get initial device list and set previousDeviceList to prevent duplicates
+            // Get initial device list
             val initialDevices = connectIQService.getConnectedRealDevices(applicationContext)
                 .map { it.friendlyName ?: "Unknown" }
             
+            val startupTime = System.currentTimeMillis()
+            
+            // Send Connected broadcasts for initial devices
             stateMutex.withLock {
                 connectedDeviceNames = initialDevices
+                
+                initialDevices.forEach { device ->
+                    storeConnectionEvent(device, true, startupTime)
+                    sendConnectionBroadcast(device, true, startupTime)
+                }
+                
+                // Set previousDeviceList AFTER sending initial Connected broadcasts
                 previousDeviceList = initialDevices
             }
 
             updateNotification()
             
-            // Now register listeners - device callback will only fire for REAL changes
+            // Now register listeners - device callback won't send duplicates
             connectIQService.registerListenersForAllDevices()
 
             Log.i(TAG, "Listening for events (${initialDevices.size} device(s))")

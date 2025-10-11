@@ -159,19 +159,22 @@ All events include:
 - `receive_time` (Long) - When app received/processed the event (milliseconds since epoch)
 
 ### 1. Worker Created
-**Sent when:** Background worker starts
+**Sent when:** Background worker starts successfully
 
 **Extras:**
 - `type`: `"Created"` (String)
-- `timestamp`: Worker creation time (Long, milliseconds)
-- `device_count`: Number of devices connected (Int)
-- `worker_start_time`: Worker start timestamp (Long, milliseconds)
-- `receive_time`: Message receive time (Long, milliseconds)
+- `worker_start_time`: Worker start timestamp (Long, milliseconds since epoch)
+- `receive_time`: Message receive time (Long, milliseconds since epoch)
 
 **Tasker Variable Examples:**
 - `%type` = `"Created"`
-- `%device_count` = `2`
 - `%worker_start_time` = `1728648123456`
+- `%receive_time` = `1728648123457`
+
+**Note:** 
+- This event is sent ONCE when the worker starts
+- No device count included - use Connected events to track devices
+- Connected events will follow separately for each device
 
 ---
 
@@ -241,6 +244,8 @@ All events include:
 - `%type` = `"Connected"`
 - `%device` = `"fenix 7S"`
 
+**Note:** Connected events are sent separately for each device, AFTER the Created event at startup.
+
 ---
 
 ### 6. Device Disconnected
@@ -288,6 +293,10 @@ Profile: "Garmin Event Listener"
 Task: "Handle Garmin Events"
   Variable Set: %event_type To %type
 
+  If %event_type ~ Created
+    Flash: "Garmin Listener started"
+  End If
+
   If %event_type ~ Started
     Flash: "Activity started on %device: %activity"
   End If
@@ -314,7 +323,32 @@ Task: "Handle Garmin Events"
 
 ---
 
-### Example 2: Ping Worker Every 5 Minutes
+### Example 2: Track Connected Devices
+```
+Profile: "Track Devices"
+  Event > Intent Received
+    - Action: net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT
+
+Task: "Update Device List"
+  If %type ~ Created
+    Variable Clear: %GarminDevices
+    Flash: "Worker started - waiting for devices"
+  End If
+
+  If %type ~ Connected
+    Variable Set: %GarminDevices To %GarminDevices,%device
+    Flash: "%device connected"
+  End If
+
+  If %type ~ Disconnected
+    Variable Search Replace: %GarminDevices Search: %device
+    Flash: "%device disconnected"
+  End If
+```
+
+---
+
+### Example 3: Ping Worker Every 5 Minutes
 ```
 Profile: "Worker Health Check"
   Time: Every 5 minutes
@@ -339,7 +373,7 @@ Task: "Check Pong"
 
 ---
 
-### Example 3: Auto-Start on Boot
+### Example 4: Auto-Start on Boot
 ```
 Profile: "Auto-Start Garmin Listener"
   Event > Device Boot
@@ -354,7 +388,7 @@ Task: "Start Garmin Listener"
 
 ---
 
-### Example 4: Log Activity Duration to File
+### Example 5: Log Activity Duration to File
 ```
 Profile: "Log Activities"
   Event > Intent Received
@@ -373,7 +407,7 @@ Task: "Log to File"
 
 ---
 
-### Example 5: Control App Remotely
+### Example 6: Control App Remotely
 ```
 Task: "Start Monitoring"
   Launch App: Garmin Activity Listener
@@ -397,11 +431,17 @@ Task: "Show GUI"
 
 ## Technical Notes
 
+### Event Sequence at Startup
+When the worker starts, the following events are broadcast in order:
+1. **Created** - Worker initialization complete
+2. **Connected** (per device) - One event for each connected device
+
+This allows you to track both when the worker starts and which devices are available.
+
 ### Timestamp Formats
 - **`receive_time`**: Always in milliseconds since epoch (System.currentTimeMillis())
 - **`time`**: Activity start time in **seconds** since epoch (Unix timestamp from watch)
 - **`worker_start_time`**: Milliseconds since epoch
-- **`timestamp`**: Same as receive_time (milliseconds since epoch)
 
 ### Converting Timestamps
 ```
@@ -468,6 +508,12 @@ Unix timestamp to human readable: use SimpleDateFormat
 3. Check EXPAND_STATUS_BAR permission in manifest
 4. Notification shade should expand automatically (may require manual swipe on some devices)
 
+### Not Receiving Connected Events at Startup
+1. Created event is sent first
+2. Connected events follow separately for each device
+3. Check that you're listening for both event types
+4. Use logcat to verify broadcasts: `Sent Connected broadcast for...`
+
 ---
 
 ## Appendix: All Intent Actions
@@ -494,6 +540,12 @@ Event types (check `%type` extra):
 ---
 
 ## Version History
+
+- **v1.2** (2025-10-11): Updated Created event
+  - Removed device_count from Created event
+  - Removed timestamp from Created event
+  - Connected events now sent separately after Created
+  - Clarified event sequence at startup
 
 - **v1.1** (2025-10-11): Updated for RECEIVER_EXPORTED
   - Removed package name requirement

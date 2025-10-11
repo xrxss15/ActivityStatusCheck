@@ -335,14 +335,14 @@ class ConnectIQQueryWorker(
                         }
                     }
                     ACTION_CLOSE_GUI -> {
-                        Log.i(TAG, "Close GUI received - sending broadcast to MainActivity")
+                        Log.i(TAG, "Close GUI received - sending internal broadcast to MainActivity")
                         val closeIntent = Intent(ACTION_EVENT).apply {
-                            addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
+                            setPackage(applicationContext.packageName)
                             putExtra("type", "CloseGUI")
                             putExtra("receive_time", System.currentTimeMillis())
                         }
                         applicationContext.sendBroadcast(closeIntent)
-                        Log.i(TAG, "CloseGUI broadcast sent")
+                        Log.i(TAG, "CloseGUI internal broadcast sent")
                     }
                 }
             }
@@ -490,9 +490,8 @@ class ConnectIQQueryWorker(
             }
             applicationContext.sendBroadcast(intent)
             
-            deviceNames.forEach { device ->
-                sendConnectionBroadcast(device, true, receiveTime)
-            }
+            // Device change callback will send individual Connected broadcasts
+            // Don't duplicate them here
             
             Log.i(TAG, "Created broadcast sent with ${deviceNames.size} device(s)")
         } catch (e: Exception) {

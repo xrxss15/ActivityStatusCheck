@@ -94,7 +94,6 @@ class MainActivity : Activity() {
         appendLog("[${ts()}] App reopened")
         updateServiceStatus()
         
-        // Only request history, no PING needed
         if (isListenerRunning()) {
             handler.postDelayed({
                 val historyIntent = Intent(ConnectIQQueryWorker.ACTION_REQUEST_HISTORY)
@@ -117,7 +116,6 @@ class MainActivity : Activity() {
                     startWorker()
                 } else {
                     appendLog("[${ts()}] Worker already running")
-                    // Request history when app starts with worker already running
                     handler.postDelayed({
                         val historyIntent = Intent(ConnectIQQueryWorker.ACTION_REQUEST_HISTORY)
                         sendBroadcast(historyIntent)
@@ -288,13 +286,7 @@ class MainActivity : Activity() {
                 val running = isListenerRunning()
                 if (!running || checkCount >= 20) {
                     ConnectIQService.resetInstance()
-                    val intent = Intent(ConnectIQQueryWorker.ACTION_EVENT).apply {
-                        addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
-                        putExtra("type", "Terminated")
-                        putExtra("reason", "User exit")
-                        putExtra("receive_time", System.currentTimeMillis())
-                    }
-                    sendBroadcast(intent)
+                    // Worker's finally block sends Terminated broadcast
                     finishAffinity()
                     android.os.Process.killProcess(android.os.Process.myPid())
                 } else {

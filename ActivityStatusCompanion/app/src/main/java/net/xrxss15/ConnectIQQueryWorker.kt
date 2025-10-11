@@ -295,15 +295,19 @@ class ConnectIQQueryWorker(
                         }
                     }
                     ACTION_PING -> {
-                        Log.i(TAG, "Ping received")
-                        val pongIntent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
-                            addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
-                            putExtra("type", "Pong")
-                            putExtra("worker_start_time", workerStartTime)
-                            putExtra("receive_time", System.currentTimeMillis())
+                        Log.i(TAG, "Ping received, sending Pong...")
+                        try {
+                            val pongIntent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
+                                addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
+                                putExtra("type", "Pong")
+                                putExtra("worker_start_time", workerStartTime)
+                                putExtra("receive_time", System.currentTimeMillis())
+                            }
+                            applicationContext.sendBroadcast(pongIntent)
+                            Log.i(TAG, "Pong broadcast sent successfully - action: ${ActivityStatusCheckReceiver.ACTION_EVENT}, worker_start_time: $workerStartTime")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to send Pong: ${e.message}", e)
                         }
-                        applicationContext.sendBroadcast(pongIntent)
-                        Log.i(TAG, "Pong sent with start time: $workerStartTime")
                     }
                 }
             }

@@ -1,11 +1,15 @@
 package net.xrxss15
 
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.work.WorkManager
 import androidx.work.WorkInfo
 
@@ -28,6 +32,7 @@ import androidx.work.WorkInfo
  *
  * 2. ACTION_OPEN_GUI (net.xrxss15.OPEN_GUI)
  *    - Opens the MainActivity GUI
+ *    - Uses full-screen intent notification for Android 10+ compatibility
  *    - If worker is running, GUI reconnects and shows history
  *    - If worker is not running, user can start it manually
  *    - Use case: User wants to view logs or status
@@ -63,6 +68,9 @@ import androidx.work.WorkInfo
  * Action: Send Intent
  *   - Action: net.xrxss15.OPEN_GUI
  *   - Target: Broadcast Receiver
+ * 
+ * Note: On Android 10+, this shows a notification that opens the app when tapped.
+ * This is required due to Android's background activity start restrictions.
  *
  * Example 3: Hide GUI (keep listening)
  * -----------------------------------
@@ -210,6 +218,12 @@ import androidx.work.WorkInfo
  * - Worker cancellation is asynchronous, receiver waits up to 2 seconds
  * - ConnectIQ SDK is properly shutdown before process termination
  *
+ * Android 10+ Background Activity Restrictions:
+ * - OPEN_GUI uses full-screen intent notification to bypass restrictions
+ * - Direct startActivity() is attempted but may be silently blocked by system
+ * - Notification allows user to open app by tapping
+ * - This is the recommended approach for background activity launches
+ *
  * Timestamp Formats:
  * - receive_time: When app received event (always milliseconds since epoch)
  * - time: Activity start time from watch (Unix seconds, only in Started/Stopped)
@@ -224,6 +238,7 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
         const val ACTION_OPEN_GUI = "net.xrxss15.OPEN_GUI"
         const val ACTION_CLOSE_GUI = "net.xrxss15.CLOSE_GUI"
         private const val TAG = "GarminActivityListener.Receiver"
+        private const val OPEN_GUI_NOTIFICATION_ID = 9999
     }
 
     override fun onReceive(context: Context?, intent: Intent?) {
@@ -245,6 +260,7 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
                                 addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
                                 putExtra("type", "Terminated")
                                 putExtra("reason", "Tasker terminate")
+                                putExtra("receive_time", System.currentTimeMillis())
                             }
                             context.sendBroadcast(terminatedIntent)
                             android.os.Process.killProcess(android.os.Process.myPid())
@@ -256,21 +272,52 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
                 handler.postDelayed(checkRunnable, 100)
             }
             ACTION_OPEN_GUI -> {
-                Log.i(TAG, "OPEN_GUI received - launching MainActivity")
-                val openIntent = Intent(context, MainActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or 
-                             Intent.FLAG_ACTIVITY_CLEAR_TASK or
-                             Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                Log.i(TAG, "OPEN_GUI received - using full-screen intent for Android 10+ compatibility")
+                try {
+                    val openIntent = Intent(context, MainActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    }
+                    
+                    val fullScreenPendingIntent = PendingIntent.getActivity(
+                        context, 
+                        0, 
+                        openIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+                    
+                    val notification = NotificationCompat.Builder(context, "garmin_listener_channel")
+                        .setSmallIcon(android.R.drawable.ic_menu_compass)
+                        .setContentTitle("Open Garmin Listener")
+                        .setContentText("Tap to open")
+                        .setPriority(NotificationCompat.PRIORITY_HIGH)
+                        .setCategory(NotificationCompat.CATEGORY_CALL)
+                        .setAutoCancel(true)
+                        .setContentIntent(fullScreenPendingIntent)
+                        .setFullScreenIntent(fullScreenPendingIntent, true)
+                        .build()
+                    
+                    NotificationManagerCompat.from(context).notify(OPEN_GUI_NOTIFICATION_ID, notification)
+                    
+                    try {
+                        context.startActivity(openIntent)
+                        Log.i(TAG, "Direct startActivity() executed")
+                    } catch (e: Exception) {
+                        Log.i(TAG, "Direct startActivity() blocked (expected on Android 10+): ${e.message}")
+                    }
+                    
+                } catch (e: Exception) {
+                    Log.e(TAG, "OPEN_GUI failed: ${e.message}", e)
                 }
-                context.startActivity(openIntent)
             }
             ACTION_CLOSE_GUI -> {
-                Log.i(TAG, "CLOSE_GUI received - finishing MainActivity")
+                Log.i(TAG, "CLOSE_GUI received - sending broadcast to MainActivity")
                 val closeIntent = Intent(ACTION_EVENT).apply {
                     addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
                     putExtra("type", "CloseGUI")
+                    putExtra("receive_time", System.currentTimeMillis())
                 }
                 context.sendBroadcast(closeIntent)
+                Log.i(TAG, "CloseGUI broadcast sent successfully")
             }
         }
     }

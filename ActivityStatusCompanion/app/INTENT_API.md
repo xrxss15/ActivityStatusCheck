@@ -17,10 +17,10 @@ This document describes all intents supported by the Garmin Activity Listener ap
 
 ## Overview
 
-The Garmin Activity Listener app provides an intent-based API for external control and monitoring. All control actions are handled by the background worker and require the package name to be specified for security.
+The Garmin Activity Listener app provides an intent-based API for external control and monitoring. All control actions are handled by the background worker.
 
 **Key Principles:**
-- All control actions require `Package: net.xrxss15` in Tasker
+- All control actions use `RECEIVER_EXPORTED` (no package name required)
 - All event broadcasts use `FLAG_INCLUDE_STOPPED_PACKAGES` for Tasker compatibility
 - The worker must be running to receive control actions
 - Events are broadcast publicly and can be received by any app
@@ -30,10 +30,10 @@ The Garmin Activity Listener app provides an intent-based API for external contr
 ## Security Model
 
 ### Control Actions (Incoming)
-All control actions use `RECEIVER_NOT_EXPORTED` and are registered at runtime by the worker. This means:
-- **Only same-app or apps with package specified** can send these intents
+All control actions are registered dynamically by the worker at runtime with `RECEIVER_EXPORTED`. This means:
+- **External apps can send** these intents without specifying package
 - **Worker must be running** to receive control actions
-- **Not declared in AndroidManifest.xml** (more secure)
+- **Not declared in AndroidManifest.xml** (registered at runtime)
 
 ### Event Broadcasts (Outgoing)
 All event broadcasts are public with `FLAG_INCLUDE_STOPPED_PACKAGES`:
@@ -63,7 +63,6 @@ These actions control the app and are sent **TO** the app from external tools li
 Task: "Stop Garmin Listener"
 Action: Send Intent
   - Action: net.xrxss15.TERMINATE
-  - Package: net.xrxss15
   - Target: Broadcast Receiver
 ```
 
@@ -73,9 +72,10 @@ Action: Send Intent
 **Action:** `net.xrxss15.OPEN_GUI`
 
 **Description:**
-- Opens the MainActivity GUI
-- If worker is running, GUI reconnects and shows history
-- If worker is not running, user can start it manually
+- Shows a notification to open the MainActivity
+- Automatically expands notification shade (if permission granted)
+- User must tap the notification to open the app
+- Workaround for Android 10+ background activity restrictions
 
 **Use Case:** User wants to view logs or status
 
@@ -84,11 +84,10 @@ Action: Send Intent
 Task: "Show Garmin Listener"
 Action: Send Intent
   - Action: net.xrxss15.OPEN_GUI
-  - Package: net.xrxss15
   - Target: Broadcast Receiver
 ```
 
-**Note:** On Android 10+, this may be restricted by background activity launch limitations.
+**Note:** Due to Android 10+ restrictions, apps cannot be opened directly from background. The notification provides a silent, user-friendly way to open the app.
 
 ---
 
@@ -108,7 +107,6 @@ Action: Send Intent
 Task: "Hide Garmin Listener"
 Action: Send Intent
   - Action: net.xrxss15.CLOSE_GUI
-  - Package: net.xrxss15
   - Target: Broadcast Receiver
 ```
 
@@ -129,7 +127,6 @@ Action: Send Intent
 Task: "Check Worker Status"
 Action: Send Intent
   - Action: net.xrxss15.PING
-  - Package: net.xrxss15
   - Target: Broadcast Receiver
 ```
 
@@ -188,7 +185,7 @@ All events include:
 
 **Tasker Variable Examples:**
 - `%type` = `"Terminated"`
-- `%reason` = `"User exit"` or `"Worker cancelled"`
+- `%reason` = `"Worker cancelled"` or `"Tasker terminate"`
 
 ---
 
@@ -325,7 +322,6 @@ Profile: "Worker Health Check"
 Task: "Ping Garmin Listener"
   Send Intent
     - Action: net.xrxss15.PING
-    - Package: net.xrxss15
     - Target: Broadcast Receiver
 ```
 
@@ -353,7 +349,6 @@ Task: "Start Garmin Listener"
   Wait: 5 seconds
   Send Intent
     - Action: net.xrxss15.CLOSE_GUI
-    - Package: net.xrxss15
     - Target: Broadcast Receiver
 ```
 
@@ -385,19 +380,16 @@ Task: "Start Monitoring"
   Wait: 2 seconds
   Send Intent
     - Action: net.xrxss15.CLOSE_GUI
-    - Package: net.xrxss15
     - Target: Broadcast Receiver
 
 Task: "Stop Monitoring"
   Send Intent
     - Action: net.xrxss15.TERMINATE
-    - Package: net.xrxss15
     - Target: Broadcast Receiver
 
 Task: "Show GUI"
   Send Intent
     - Action: net.xrxss15.OPEN_GUI
-    - Package: net.xrxss15
     - Target: Broadcast Receiver
 ```
 
@@ -419,8 +411,8 @@ Unix timestamp to human readable: use SimpleDateFormat
 ```
 
 ### Security Considerations
-- All control actions require `Package: net.xrxss15` to prevent unauthorized access
-- Worker receiver uses `RECEIVER_NOT_EXPORTED` for security
+- All control actions use `RECEIVER_EXPORTED` (no package restriction needed)
+- Worker receiver is registered at runtime (not in manifest)
 - Event broadcasts are public (FLAG_INCLUDE_STOPPED_PACKAGES) for Tasker compatibility
 - History responses are internal-only (setPackage, only MainActivity receives)
 
@@ -431,8 +423,8 @@ Unix timestamp to human readable: use SimpleDateFormat
 - Broadcasts are asynchronous and may have slight delays
 
 ### Worker Lifecycle
-- Worker registers control receiver on startup
-- Control actions only work while worker is running
+- Worker registers control receiver on startup with `RECEIVER_EXPORTED`
+- Control actions work from any external app
 - If worker is stopped, control actions will be silently ignored
 - Send PING periodically to verify worker is running
 
@@ -443,10 +435,10 @@ Unix timestamp to human readable: use SimpleDateFormat
 - Use `adb logcat | grep GarminActivityListener` to monitor
 
 ### Background Restrictions
-- Android 10+ may restrict background activity launches
-- OPEN_GUI may require user interaction on some devices
-- Consider using notifications instead of direct activity launch
-- Worker foreground service helps prevent system kills
+- Android 10+ restricts background activity launches
+- OPEN_GUI shows notification instead of direct launch
+- Requires EXPAND_STATUS_BAR permission for auto-expand
+- User must tap notification to open app
 
 ---
 
@@ -454,9 +446,9 @@ Unix timestamp to human readable: use SimpleDateFormat
 
 ### Control Actions Not Working
 1. Verify worker is running: Send PING and listen for Pong
-2. Check package name is set: `Package: net.xrxss15`
+2. Check Target is set to "Broadcast Receiver" in Tasker
 3. Check logcat for error messages
-4. Ensure Target is set to "Broadcast Receiver" in Tasker
+4. Ensure app is not battery optimized
 
 ### Not Receiving Events in Tasker
 1. Check Intent Filter action is exactly: `net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT`
@@ -465,10 +457,16 @@ Unix timestamp to human readable: use SimpleDateFormat
 4. Check battery optimization settings (may affect event delivery)
 
 ### Pong Not Received
-1. Verify PING has package name set: `Package: net.xrxss15`
+1. Verify PING action is correct: `net.xrxss15.PING`
 2. Check worker is running (GUI should show status)
 3. Check Tasker profile is listening for correct action
 4. Use logcat to verify Pong is sent: `Pong sent: worker_start_time=...`
+
+### OPEN_GUI Not Working
+1. Notification should appear - check if notification permission is granted
+2. Tap the notification to open app (cannot auto-open on Android 10+)
+3. Check EXPAND_STATUS_BAR permission in manifest
+4. Notification shade should expand automatically (may require manual swipe on some devices)
 
 ---
 
@@ -476,7 +474,7 @@ Unix timestamp to human readable: use SimpleDateFormat
 
 ### Control Actions (Send TO App)
 - `net.xrxss15.TERMINATE` - Stop worker and exit
-- `net.xrxss15.OPEN_GUI` - Open MainActivity
+- `net.xrxss15.OPEN_GUI` - Show notification to open MainActivity
 - `net.xrxss15.CLOSE_GUI` - Close MainActivity
 - `net.xrxss15.PING` - Health check
 - `net.xrxss15.REQUEST_HISTORY` - Request event history (internal only)
@@ -497,10 +495,13 @@ Event types (check `%type` extra):
 
 ## Version History
 
-- **v1.0** (2025-10-11): Initial API documentation
-  - All control actions use RECEIVER_NOT_EXPORTED
-  - No manifest-declared receivers for security
+- **v1.1** (2025-10-11): Updated for RECEIVER_EXPORTED
+  - Removed package name requirement
+  - Updated OPEN_GUI to use notification
+  - Added EXPAND_STATUS_BAR permission
   - Complete Tasker integration examples
+
+- **v1.0** (2025-10-11): Initial API documentation
 
 ---
 
@@ -509,7 +510,7 @@ Event types (check `%type` extra):
 For issues or questions:
 1. Check logcat: `adb logcat | grep GarminActivityListener`
 2. Verify worker is running in app GUI
-3. Test individual intents using `adb shell am broadcast`
+3. Test individual intents from Tasker
 4. Review Tasker profile configuration
 
 ---

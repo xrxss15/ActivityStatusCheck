@@ -21,7 +21,7 @@ The Garmin Activity Listener app provides an intent-based API for external contr
 
 **Key Principles:**
 - All control actions use `RECEIVER_EXPORTED` (no package name required)
-- All event broadcasts use `FLAG_INCLUDE_STOPPED_PACKAGES` for Tasker compatibility
+- All event broadcasts use standard Android broadcast (no special flags)
 - The worker must be running to receive control actions
 - Events are broadcast publicly and can be received by any app
 
@@ -36,9 +36,8 @@ All control actions are registered dynamically by the worker at runtime with `RE
 - **Not declared in AndroidManifest.xml** (registered at runtime)
 
 ### Event Broadcasts (Outgoing)
-All event broadcasts are public with `FLAG_INCLUDE_STOPPED_PACKAGES`:
+All event broadcasts are public:
 - **Any app can receive** these broadcasts (including Tasker)
-- **Broadcasts continue even if receiving app is stopped**
 - **No permission required** to receive events
 
 ---
@@ -117,7 +116,7 @@ Action: Send Intent
 
 **Description:**
 - Queries worker health status
-- Worker responds with Pong broadcast (see Event 7)
+- Worker responds with Pong broadcast (see Event 6)
 - Returns worker start time in response
 
 **Use Case:** Health check from Tasker or monitoring
@@ -130,7 +129,7 @@ Action: Send Intent
   - Target: Broadcast Receiver
 ```
 
-**Response:** See [Event 7: Pong](#7-pong-health-check-response)
+**Response:** See [Event 6: Pong](#6-pong-health-check-response)
 
 ---
 
@@ -173,8 +172,7 @@ All events include:
 
 **Note:** 
 - This event is sent ONCE when the worker starts
-- No device count included - use Connected events to track devices
-- Connected events will follow separately for each device
+- DeviceList event will follow with current devices
 
 ---
 
@@ -232,37 +230,39 @@ All events include:
 
 ---
 
-### 5. Device Connected
-**Sent when:** A Garmin device connects via Bluetooth
+### 5. Device List
+**Sent when:** 
+- Worker starts (initial device list)
+- Any device connects or disconnects (updated device list)
 
 **Extras:**
-- `type`: `"Connected"` (String)
-- `device`: Device name (String)
-- `receive_time`: When connection detected (Long, milliseconds)
+- `type`: `"DeviceList"` (String)
+- `devices`: Array of connected device names (String[])
+- `device_count`: Number of connected devices (Int)
+- `receive_time`: When change detected (Long, milliseconds)
 
 **Tasker Variable Examples:**
-- `%type` = `"Connected"`
-- `%device` = `"fenix 7S"`
+- `%type` = `"DeviceList"`
+- `%devices()` = Array with device names like `"fenix 7S"`
+- `%devices(#)` = Number of devices in array
+- `%device_count` = `1`
 
-**Note:** Connected events are sent separately for each device, AFTER the Created event at startup.
+**Important Notes:**
+- Empty array when no devices connected (`device_count` = 0)
+- Sent once at startup with current devices
+- Sent again whenever device list changes
+- Replaces individual Connected/Disconnected events
+
+**Tasker Array Access:**
+```
+%devices(1) = First device name
+%devices(2) = Second device name
+%devices(#) = Total number of devices
+```
 
 ---
 
-### 6. Device Disconnected
-**Sent when:** A Garmin device disconnects
-
-**Extras:**
-- `type`: `"Disconnected"` (String)
-- `device`: Device name (String)
-- `receive_time`: When disconnection detected (Long, milliseconds)
-
-**Tasker Variable Examples:**
-- `%type` = `"Disconnected"`
-- `%device` = `"fenix 7S"`
-
----
-
-### 7. Pong (Health Check Response)
+### 6. Pong (Health Check Response)
 **Sent when:** App receives a PING action
 
 **Extras:**
@@ -307,12 +307,12 @@ Task: "Handle Garmin Events"
     Flash: "%device completed %activity (%hours:%mins)"
   End If
 
-  If %event_type ~ Connected
-    Flash: "%device connected"
-  End If
-
-  If %event_type ~ Disconnected
-    Flash: "%device disconnected"
+  If %event_type ~ DeviceList
+    If %device_count > 0
+      Flash: "%device_count device(s) connected"
+    Else
+      Flash: "No devices connected"
+    End If
   End If
 
   If %event_type ~ Pong
@@ -330,19 +330,18 @@ Profile: "Track Devices"
     - Action: net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT
 
 Task: "Update Device List"
-  If %type ~ Created
+  If %type ~ DeviceList
     Variable Clear: %GarminDevices
-    Flash: "Worker started - waiting for devices"
-  End If
+    Variable Set: %device_count To %device_count
 
-  If %type ~ Connected
-    Variable Set: %GarminDevices To %GarminDevices,%device
-    Flash: "%device connected"
-  End If
-
-  If %type ~ Disconnected
-    Variable Search Replace: %GarminDevices Search: %device
-    Flash: "%device disconnected"
+    If %device_count > 0
+      For %i In 1:%devices(#)
+        Variable Set: %GarminDevices To %GarminDevices,%devices(%i)
+      End For
+      Flash: "%device_count device(s): %GarminDevices"
+    Else
+      Flash: "No devices connected"
+    End If
   End If
 ```
 
@@ -429,14 +428,39 @@ Task: "Show GUI"
 
 ---
 
+### Example 7: Alert When Device Disconnects
+```
+Profile: "Device Disconnection Alert"
+  Event > Intent Received
+    - Action: net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT
+
+Task: "Check Devices"
+  If %type ~ DeviceList
+    If %device_count Eq 0
+      Notify: "Garmin device disconnected!"
+      Vibrate: Pattern 0,100,50,100
+    End If
+  End If
+```
+
+---
+
 ## Technical Notes
 
 ### Event Sequence at Startup
 When the worker starts, the following events are broadcast in order:
 1. **Created** - Worker initialization complete
-2. **Connected** (per device) - One event for each connected device
+2. **DeviceList** - Current connected devices (may be empty if no devices)
 
 This allows you to track both when the worker starts and which devices are available.
+
+**Example flow with 1 device:**
+1. Created (worker_start_time)
+2. DeviceList (devices=["fenix 7S"], device_count=1)
+
+**Example flow with no devices:**
+1. Created
+2. DeviceList (devices=[], device_count=0)
 
 ### Timestamp Formats
 - **`receive_time`**: Always in milliseconds since epoch (System.currentTimeMillis())
@@ -453,14 +477,13 @@ Unix timestamp to human readable: use SimpleDateFormat
 ### Security Considerations
 - All control actions use `RECEIVER_EXPORTED` (no package restriction needed)
 - Worker receiver is registered at runtime (not in manifest)
-- Event broadcasts are public (FLAG_INCLUDE_STOPPED_PACKAGES) for Tasker compatibility
+- Event broadcasts are public (standard Android broadcasts)
 - History responses are internal-only (setPackage, only MainActivity receives)
 
 ### Broadcast Delivery
-- All event broadcasts use `FLAG_INCLUDE_STOPPED_PACKAGES`
-- This ensures Tasker receives events even when in stopped state
-- No special permissions required to receive broadcasts
+- All event broadcasts use standard Android broadcast mechanism
 - Broadcasts are asynchronous and may have slight delays
+- No special permissions required to receive broadcasts
 
 ### Worker Lifecycle
 - Worker registers control receiver on startup with `RECEIVER_EXPORTED`
@@ -508,11 +531,16 @@ Unix timestamp to human readable: use SimpleDateFormat
 3. Check EXPAND_STATUS_BAR permission in manifest
 4. Notification shade should expand automatically (may require manual swipe on some devices)
 
-### Not Receiving Connected Events at Startup
-1. Created event is sent first
-2. Connected events follow separately for each device
-3. Check that you're listening for both event types
-4. Use logcat to verify broadcasts: `Sent Connected broadcast for...`
+### DeviceList Shows Zero Devices
+1. Verify Garmin device is paired and connected to phone
+2. Check Garmin Connect app shows device connected
+3. Check app has Bluetooth permissions granted
+4. Use logcat to see: `getConnectedRealDevices: Total devices from SDK`
+
+### DeviceList Array Access in Tasker
+- Use `%devices(1)` for first device
+- Use `%devices(#)` for array length
+- Loop through: `For %i In 1:%devices(#)`
 
 ---
 
@@ -533,13 +561,18 @@ Event types (check `%type` extra):
 - `Terminated` - Worker stopped
 - `Started` - Activity started
 - `Stopped` - Activity stopped
-- `Connected` - Device connected
-- `Disconnected` - Device disconnected
+- `DeviceList` - Device list changed (replaces Connected/Disconnected)
 - `Pong` - Health check response
 
 ---
 
 ## Version History
+
+- **v1.3** (2025-10-11): Device list events
+  - Removed individual Connected/Disconnected events
+  - Added DeviceList event (sent at startup and on changes)
+  - Removed FLAG_INCLUDE_STOPPED_PACKAGES
+  - DeviceList includes devices array and device_count
 
 - **v1.2** (2025-10-11): Updated Created event
   - Removed device_count from Created event

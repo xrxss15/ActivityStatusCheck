@@ -161,7 +161,7 @@ class ConnectIQQueryWorker(
             // Send initial DeviceList broadcast at startup
             sendDeviceListBroadcast(initialDevices, startupTime)
             
-            updateNotification()
+            updateNotification(forceUpdate = true)
             
             // Now register listeners - device callback will handle future changes
             connectIQService.registerListenersForAllDevices()
@@ -215,10 +215,9 @@ class ConnectIQQueryWorker(
 
     private fun storeDeviceListEvent(devices: List<String>, receiveTime: Long) {
         try {
-            val devicesArray = JSONArray(devices)
             val eventData = JSONObject().apply {
                 put("type", "DeviceList")
-                put("devices", devicesArray)
+                put("devices", devices.joinToString("/"))
                 put("device_count", devices.size)
                 put("receive_time", receiveTime)
             }
@@ -260,7 +259,7 @@ class ConnectIQQueryWorker(
         try {
             val intent = Intent(ACTION_EVENT).apply {
                 putExtra("type", "DeviceList")
-                putExtra("devices", devices.toTypedArray())
+                putExtra("devices", devices.joinToString("/"))
                 putExtra("device_count", devices.size)
                 putExtra("receive_time", receiveTime)
             }
@@ -300,12 +299,7 @@ class ConnectIQQueryWorker(
                                             }
                                             "DeviceList" -> {
                                                 putExtra("device_count", event.getInt("device_count"))
-                                                val devicesArray = event.getJSONArray("devices")
-                                                val devicesList = mutableListOf<String>()
-                                                for (i in 0 until devicesArray.length()) {
-                                                    devicesList.add(devicesArray.getString(i))
-                                                }
-                                                putExtra("devices", devicesList.toTypedArray())
+                                                putExtra("devices", event.getString("devices"))
                                             }
                                         }
                                     }
@@ -421,11 +415,11 @@ class ConnectIQQueryWorker(
         controlReceiver = null
     }
 
-    private suspend fun updateNotification() {
+    private suspend fun updateNotification(forceUpdate: Boolean = false) {
         notificationMutex.withLock {
             val now = System.currentTimeMillis()
-            if (now - lastNotificationUpdate < NOTIFICATION_UPDATE_THROTTLE_MS) {
-                return // Skip update if too soon
+            if (!forceUpdate && now - lastNotificationUpdate < NOTIFICATION_UPDATE_THROTTLE_MS) {
+                return
             }
             lastNotificationUpdate = now
             

@@ -365,12 +365,12 @@ class MainActivity : Activity() {
                 appendLog("[${ts()}] $device completed $activity in $durationStr (started $formattedDate)")
             }
             "DeviceList" -> {
-                val devices = intent.getStringArrayExtra("devices") ?: emptyArray()
+                val devicesString = intent.getStringExtra("devices") ?: ""
                 val deviceCount = intent.getIntExtra("device_count", 0)
-                if (deviceCount == 0) {
+                if (deviceCount == 0 || devicesString.isEmpty()) {
                     appendLog("[${ts()}] Devices: None")
                 } else {
-                    appendLog("[${ts()}] Devices: ${devices.joinToString(", ")}")
+                    appendLog("[${ts()}] Devices: $devicesString")
                 }
             }
             "Created" -> {

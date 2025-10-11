@@ -341,13 +341,12 @@ class MainActivity : Activity() {
         messageReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 val type = intent?.getStringExtra("type") ?: return
-                val broadcastId = intent.getStringExtra("broadcast_id") ?: "unknown"
                 
                 when (type) {
                     "CloseGUI" -> {
                         closeGUI()
                     }
-                    else -> handleGarminEvent(type, intent, broadcastId)
+                    else -> handleGarminEvent(type, intent)
                 }
             }
         }
@@ -360,14 +359,14 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun handleGarminEvent(type: String?, intent: Intent, broadcastId: String) {
+    private fun handleGarminEvent(type: String?, intent: Intent) {
         when (type) {
             "Started" -> {
                 val device = intent.getStringExtra("device") ?: "Unknown"
                 val time = intent.getLongExtra("time", 0)
                 val activity = intent.getStringExtra("activity") ?: "Unknown"
                 val formattedDate = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(Date(time * 1000))
-                appendLog("[${ts()}] [$broadcastId] $device started $activity at $formattedDate")
+                appendLog("[${ts()}] $device started $activity at $formattedDate")
             }
             "Stopped" -> {
                 val device = intent.getStringExtra("device") ?: "Unknown"
@@ -378,26 +377,26 @@ class MainActivity : Activity() {
                 val minutes = (duration % 3600) / 60
                 val formattedDate = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(Date(time * 1000))
                 val durationStr = String.format("%dh %02dm", hours, minutes)
-                appendLog("[${ts()}] [$broadcastId] $device completed $activity in $durationStr (started $formattedDate)")
+                appendLog("[${ts()}] $device completed $activity in $durationStr (started $formattedDate)")
             }
             "DeviceList" -> {
                 val devices = intent.getStringArrayExtra("devices") ?: emptyArray()
                 val deviceCount = intent.getIntExtra("device_count", 0)
                 if (deviceCount == 0) {
-                    appendLog("[${ts()}] [$broadcastId] Devices: None")
+                    appendLog("[${ts()}] Devices: None")
                 } else {
-                    appendLog("[${ts()}] [$broadcastId] Devices: ${devices.joinToString(", ")}")
+                    appendLog("[${ts()}] Devices: ${devices.joinToString(", ")}")
                 }
             }
             "Created" -> {
-                appendLog("[${ts()}] [$broadcastId] WORKER STARTED")
+                appendLog("[${ts()}] WORKER STARTED")
             }
             "Terminated" -> {
                 val reason = intent.getStringExtra("reason") ?: "Unknown"
-                appendLog("[${ts()}] [$broadcastId] WORKER STOPPED: $reason")
+                appendLog("[${ts()}] WORKER STOPPED: $reason")
             }
             "Pong" -> {
-                appendLog("[${ts()}] [$broadcastId] PONG received")
+                appendLog("[${ts()}] PONG received")
             }
         }
         updateServiceStatus()

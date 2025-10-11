@@ -77,11 +77,12 @@
         <!-- Broadcast Receiver for Tasker integration -->
         <receiver
             android:name="net.xrxss15.ActivityStatusCheckReceiver"
+            android:enabled="true"
             android:exported="true" >
             <intent-filter>
+                <action android:name="net.xrxss15.TERMINATE" />
                 <action android:name="net.xrxss15.OPEN_GUI" />
                 <action android:name="net.xrxss15.CLOSE_GUI" />
-                <action android:name="net.xrxss15.TERMINATE" />
             </intent-filter>
         </receiver>
 

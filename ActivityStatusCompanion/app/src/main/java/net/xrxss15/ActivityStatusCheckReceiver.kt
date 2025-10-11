@@ -16,7 +16,7 @@ import androidx.work.WorkInfo
  * allowing complete control over the app's lifecycle and GUI visibility.
  *
  * ========================================
- * SUPPORTED ACTIONS
+ * SUPPORTED ACTIONS (FOR EXTERNAL USE)
  * ========================================
  *
  * 1. ACTION_TERMINATE (net.xrxss15.TERMINATE)
@@ -28,19 +28,23 @@ import androidx.work.WorkInfo
  *
  * 2. ACTION_OPEN_GUI (net.xrxss15.OPEN_GUI)
  *    - Opens the MainActivity GUI
- *    - If worker is running, GUI reconnects to it
+ *    - If worker is running, GUI reconnects and shows history
  *    - If worker is not running, user can start it manually
  *    - Use case: User wants to view logs or status
  *
  * 3. ACTION_CLOSE_GUI (net.xrxss15.CLOSE_GUI)
- *    - Closes the MainActivity GUI
+ *    - Closes the MainActivity GUI via finishAndRemoveTask()
+ *    - Removes app from recent apps list
  *    - Worker continues running in background
  *    - Listening for activity events continues
  *    - Use case: Hide GUI but keep monitoring
  *
- * 4. ACTION_EVENT (net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT)
- *    - Internal event broadcast (not meant for external use)
- *    - Sent by worker when activity events occur
+ * 4. ACTION_PING (net.xrxss15.PING)
+ *    - Queries worker health status
+ *    - Worker responds with Pong broadcast
+ *    - Returns worker start time in response
+ *    - Use case: Health check from Tasker or monitoring
+ *    - Requires: Package name must be specified in Tasker
  *
  * ========================================
  * TASKER INTEGRATION EXAMPLES
@@ -67,7 +71,26 @@ import androidx.work.WorkInfo
  *   - Action: net.xrxss15.CLOSE_GUI
  *   - Target: Broadcast Receiver
  *
- * Example 4: Listen for activity events
+ * Example 4: Ping worker health check
+ * -----------------------------------
+ * Task: "Check Worker Status"
+ * Action: Send Intent
+ *   - Action: net.xrxss15.PING
+ *   - Package: net.xrxss15
+ *   - Target: Broadcast Receiver
+ *
+ * Then listen for Pong response:
+ * Profile: Event > Intent Received
+ *   - Action: net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT
+ * 
+ * Task: "Handle Pong"
+ * If %type ~ Pong:
+ *   - Variable %worker_start_time = worker start timestamp (Long, milliseconds)
+ *   - Variable %receive_time = current time (Long, milliseconds)
+ *   - Flash: "Worker running since %worker_start_time"
+ *   - Calculate uptime: (%receive_time - %worker_start_time) / 1000 seconds
+ *
+ * Example 5: Listen for activity events
  * -----------------------------------
  * Profile: Event > Intent Received
  *   - Action: net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT
@@ -78,34 +101,45 @@ import androidx.work.WorkInfo
  *   - "Terminated" = Worker stopped
  *   - "Started" = Activity started on device
  *   - "Stopped" = Activity stopped on device
- *   - "DeviceList" = Device connection status changed
+ *   - "Connected" = Device connected
+ *   - "Disconnected" = Device disconnected
+ *   - "Pong" = Response to Ping health check
  *
  * Example: Flash notification on activity start
  * If %type ~ Started:
  *   - Flash: "Activity started on %device"
- *   - Variable %device = device name
- *   - Variable %activity = activity type
- *   - Variable %time = start time (Unix timestamp)
+ *   - Variable %device = device name (String)
+ *   - Variable %activity = activity type (String)
+ *   - Variable %time = activity start time (Long, Unix timestamp seconds)
+ *   - Variable %receive_time = when app received message (Long, milliseconds)
+ *
+ * Example: Track activity duration
+ * If %type ~ Stopped:
+ *   - Flash: "%device completed %activity in %duration seconds"
+ *   - Variable %duration = activity duration in seconds (Int)
  *
  * ========================================
  * BROADCAST EVENTS SENT BY APP
  * ========================================
  *
- * All events are sent with action:
- * net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT
+ * All events are sent with action: net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT
+ * All events use FLAG_INCLUDE_STOPPED_PACKAGES (receivable by Tasker)
  *
  * Event 1: Worker Created
  * -----------------------
  * Extras:
  *   - type: "Created" (String)
- *   - timestamp: Worker start time (Long, milliseconds)
- *   - devices: Connected device names, separated by "/" (String)
+ *   - timestamp: Worker creation time (Long, milliseconds)
+ *   - device_count: Number of devices connected (Int)
+ *   - worker_start_time: Worker start timestamp (Long, milliseconds)
+ *   - receive_time: Message receive time (Long, milliseconds)
  *
  * Event 2: Worker Terminated
  * ---------------------------
  * Extras:
  *   - type: "Terminated" (String)
  *   - reason: Reason for termination (String)
+ *   - receive_time: Message receive time (Long, milliseconds)
  *
  * Event 3: Activity Started
  * --------------------------
@@ -115,6 +149,7 @@ import androidx.work.WorkInfo
  *   - time: Activity start time (Long, Unix timestamp seconds)
  *   - activity: Activity type like "running", "cycling" (String)
  *   - duration: Always 0 for start events (Int)
+ *   - receive_time: When app received message (Long, milliseconds)
  *
  * Event 4: Activity Stopped
  * --------------------------
@@ -124,37 +159,62 @@ import androidx.work.WorkInfo
  *   - time: Activity start time (Long, Unix timestamp seconds)
  *   - activity: Activity type (String)
  *   - duration: Activity duration in seconds (Int)
+ *   - receive_time: When app received message (Long, milliseconds)
  *
- * Event 5: Device List Changed
- * -----------------------------
+ * Event 5: Device Connected
+ * -------------------------
  * Extras:
- *   - type: "DeviceList" (String)
- *   - devices: Connected device names, separated by "/" (String)
+ *   - type: "Connected" (String)
+ *   - device: Device name (String)
+ *   - receive_time: When connection detected (Long, milliseconds)
+ *
+ * Event 6: Device Disconnected
+ * ----------------------------
+ * Extras:
+ *   - type: "Disconnected" (String)
+ *   - device: Device name (String)
+ *   - receive_time: When disconnection detected (Long, milliseconds)
+ *
+ * Event 7: Pong (Health Check Response)
+ * --------------------------------------
+ * Extras:
+ *   - type: "Pong" (String)
+ *   - worker_start_time: Worker start timestamp (Long, milliseconds)
+ *   - receive_time: Current time (Long, milliseconds)
+ *
+ * ========================================
+ * INTERNAL ACTIONS (APP USE ONLY)
+ * ========================================
+ *
+ * REQUEST_HISTORY (net.xrxss15.REQUEST_HISTORY)
+ *   - Internal action used by MainActivity to request event history
+ *   - Requires: Package name (internal communication only)
+ *   - Worker responds with internal broadcasts (not receivable by Tasker)
+ *   - History events are sent with setPackage() to MainActivity only
+ *   - Use case: MainActivity displays cached events on reopen
  *
  * ========================================
  * TECHNICAL NOTES
  * ========================================
  *
- * - All broadcasts use FLAG_INCLUDE_STOPPED_PACKAGES for Tasker compatibility
+ * Security Model:
+ * - TERMINATE, OPEN_GUI, CLOSE_GUI: Exported in manifest, anyone can send
+ * - PING, REQUEST_HISTORY: RECEIVER_NOT_EXPORTED, requires setPackage()
+ * - All event broadcasts: Public (FLAG_INCLUDE_STOPPED_PACKAGES)
+ * - History responses: Internal only (setPackage, only MainActivity receives)
+ *
+ * Broadcast Patterns:
+ * - All event broadcasts use FLAG_INCLUDE_STOPPED_PACKAGES for Tasker compatibility
  * - ACTION_TERMINATE kills the process with Process.killProcess()
- * - ACTION_CLOSE_GUI sends broadcast to MainActivity which calls finish()
+ * - ACTION_CLOSE_GUI sends broadcast to MainActivity which calls finishAndRemoveTask()
  * - Worker cancellation is asynchronous, receiver waits up to 2 seconds
  * - ConnectIQ SDK is properly shutdown before process termination
  *
- * ========================================
- * MANIFEST REQUIREMENTS
- * ========================================
- *
- * <receiver
- *     android:name=".ActivityStatusCheckReceiver"
- *     android:enabled="true"
- *     android:exported="true">
- *     <intent-filter>
- *         <action android:name="net.xrxss15.TERMINATE"/>
- *         <action android:name="net.xrxss15.OPEN_GUI"/>
- *         <action android:name="net.xrxss15.CLOSE_GUI"/>
- *     </intent-filter>
- * </receiver>
+ * Timestamp Formats:
+ * - receive_time: When app received event (always milliseconds since epoch)
+ * - time: Activity start time from watch (Unix seconds, only in Started/Stopped)
+ * - worker_start_time: When worker started (milliseconds since epoch)
+ * - timestamp: Same as receive_time (milliseconds since epoch)
  */
 class ActivityStatusCheckReceiver : BroadcastReceiver() {
 
@@ -198,13 +258,14 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
             ACTION_OPEN_GUI -> {
                 Log.i(TAG, "OPEN_GUI received - launching MainActivity")
                 val openIntent = Intent(context, MainActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or 
+                             Intent.FLAG_ACTIVITY_CLEAR_TASK or
+                             Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 }
                 context.startActivity(openIntent)
             }
             ACTION_CLOSE_GUI -> {
                 Log.i(TAG, "CLOSE_GUI received - finishing MainActivity")
-                // Send broadcast to MainActivity to finish itself
                 val closeIntent = Intent(ACTION_EVENT).apply {
                     addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
                     putExtra("type", "CloseGUI")
@@ -214,12 +275,6 @@ class ActivityStatusCheckReceiver : BroadcastReceiver() {
         }
     }
 
-    /**
-     * Check if the background worker is currently running.
-     *
-     * @param context Application context
-     * @return true if worker is RUNNING or ENQUEUED, false otherwise
-     */
     private fun isListenerRunning(context: Context): Boolean {
         return try {
             val workManager = WorkManager.getInstance(context)

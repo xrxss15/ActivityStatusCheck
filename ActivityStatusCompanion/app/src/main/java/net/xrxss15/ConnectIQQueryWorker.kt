@@ -38,8 +38,8 @@ class ConnectIQQueryWorker(
         private const val SDK_INIT_WAIT_MS = 30_000L
         private const val SDK_CHECK_INTERVAL_MS = 500L
         private const val MAX_MESSAGE_HISTORY = 100
-        const val ACTION_REQUEST_HISTORY = "net.xrxss15.internal.REQUEST_HISTORY"
-        const val ACTION_PING = "net.xrxss15.internal.PING"
+        const val ACTION_REQUEST_HISTORY = "net.xrxss15.REQUEST_HISTORY"
+        const val ACTION_PING = "net.xrxss15.PING"
     }
 
     private val connectIQService = ConnectIQService.getInstance()
@@ -49,7 +49,7 @@ class ConnectIQQueryWorker(
     private lateinit var notificationManager: NotificationManager
     private val stateMutex = Mutex()
     private val eventHistory = mutableListOf<String>()
-    private var historyReceiver: BroadcastReceiver? = null
+    private var internalReceiver: BroadcastReceiver? = null
     private var previousDeviceList = emptyList<String>()
     private var workerStartTime: Long = 0
 
@@ -79,9 +79,9 @@ class ConnectIQQueryWorker(
 
             Log.i(TAG, "SDK confirmed initialized")
 
-            registerInternalReceivers()
+            registerInternalReceiver()
 
-            connectIQService.setMessageCallback { payload, deviceName, timestamp ->
+            connectIQService.setMessageCallback { payload, deviceName, _ ->
                 CoroutineScope(Dispatchers.Main).launch {
                     try {
                         val receiveTime = System.currentTimeMillis()
@@ -171,7 +171,7 @@ class ConnectIQQueryWorker(
             Result.failure()
         } finally {
             Log.i(TAG, "Worker finally block")
-            unregisterInternalReceivers()
+            unregisterInternalReceiver()
             connectIQService.setMessageCallback(null)
             connectIQService.setDeviceChangeCallback(null)
         }
@@ -255,8 +255,8 @@ class ConnectIQQueryWorker(
         }
     }
 
-    private fun registerInternalReceivers() {
-        historyReceiver = object : BroadcastReceiver() {
+    private fun registerInternalReceiver() {
+        internalReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 when (intent?.action) {
                     ACTION_REQUEST_HISTORY -> {
@@ -297,7 +297,7 @@ class ConnectIQQueryWorker(
                     ACTION_PING -> {
                         Log.i(TAG, "Ping received")
                         val pongIntent = Intent(ActivityStatusCheckReceiver.ACTION_EVENT).apply {
-                            setPackage(applicationContext.packageName)
+                            addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
                             putExtra("type", "Pong")
                             putExtra("worker_start_time", workerStartTime)
                             putExtra("receive_time", System.currentTimeMillis())
@@ -315,23 +315,23 @@ class ConnectIQQueryWorker(
         }
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            applicationContext.registerReceiver(historyReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            applicationContext.registerReceiver(internalReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
-            applicationContext.registerReceiver(historyReceiver, filter)
+            applicationContext.registerReceiver(internalReceiver, filter)
         }
-        Log.i(TAG, "Internal receivers registered")
+        Log.i(TAG, "Internal receiver registered (RECEIVER_NOT_EXPORTED)")
     }
 
-    private fun unregisterInternalReceivers() {
-        historyReceiver?.let {
+    private fun unregisterInternalReceiver() {
+        internalReceiver?.let {
             try {
                 applicationContext.unregisterReceiver(it)
-                Log.i(TAG, "Internal receivers unregistered")
+                Log.i(TAG, "Internal receiver unregistered")
             } catch (e: Exception) {
-                Log.e(TAG, "Error unregistering receivers: ${e.message}")
+                Log.e(TAG, "Error unregistering receiver: ${e.message}")
             }
         }
-        historyReceiver = null
+        internalReceiver = null
     }
 
     private suspend fun updateNotification() {

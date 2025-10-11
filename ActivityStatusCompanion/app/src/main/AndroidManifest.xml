@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
-    package="net.xrxss15">
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Location permission required for BLE scanning (Android requirement) -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -56,11 +55,12 @@
         <!-- Broadcast Receiver for Tasker integration -->
         <receiver
             android:name=".ActivityStatusCheckReceiver"
+            android:enabled="true"
             android:exported="true">
             <intent-filter>
+                <action android:name="net.xrxss15.TERMINATE" />
                 <action android:name="net.xrxss15.OPEN_GUI" />
                 <action android:name="net.xrxss15.CLOSE_GUI" />
-                <action android:name="net.xrxss15.TERMINATE" />
             </intent-filter>
         </receiver>
 

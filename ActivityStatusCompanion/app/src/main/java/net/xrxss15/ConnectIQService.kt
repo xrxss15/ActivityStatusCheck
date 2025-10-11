@@ -1,36 +1,27 @@
 package net.xrxss15
 
 import android.content.Context
+import android.content.Intent
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.garmin.android.connectiq.ConnectIQ
 import com.garmin.android.connectiq.ConnectIQ.ConnectIQListener
 import com.garmin.android.connectiq.ConnectIQ.IQApplicationEventListener
 import com.garmin.android.connectiq.ConnectIQ.IQSdkErrorStatus
 import com.garmin.android.connectiq.IQApp
 import com.garmin.android.connectiq.IQDevice
+import android.content.pm.PackageManager
 
-/**
- * Singleton service for managing Garmin ConnectIQ SDK integration.
- *
- * This service handles:
- * - SDK initialization and lifecycle management
- * - Device discovery and registration
- * - App event listener registration for activity messages
- * - Automatic SDK recovery when service binding is lost
- * - Message parsing and broadcast distribution
- *
- * The service maintains a single SDK instance across the application lifecycle
- * and automatically handles reconnection scenarios when the Garmin app unbinds.
- */
 class ConnectIQService private constructor() {
 
     companion object {
-        private const val TAG = "ConnectIQService"
-        private const val MY_APP_ID = "3cdfe926-d53d-4f94-b6d1-7f1dac32156e"
-        private const val DEVICE_STATUS_CHECK_DELAY_MS = 500L
-        private const val SDK_REINIT_DELAY_MS = 1000L
+        private const val APP_UUID = "3cdfe926-d53d-4f94-b6d1-7f1dac32156e"
+        private const val TAG = "GarminActivityListener.Service"
+        private const val DISCOVERY_DELAY_MS = 500L
+        private const val KNOWN_SIMULATOR_ID = 12345L
 
         @Volatile
         private var instance: ConnectIQService? = null
@@ -43,219 +34,269 @@ class ConnectIQService private constructor() {
 
         fun resetInstance() {
             synchronized(this) {
-                instance?.shutdown()
+                instance?.let {
+                    it.sdkReady = false
+                    try {
+                        val sdk = it.connectIQ
+                        val ctx = it.appContext
+                        if (sdk != null && ctx != null) {
+                            sdk.shutdown(ctx)
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error during shutdown", e)
+                    }
+                    it.connectIQ = null
+                    it.appListeners.clear()
+                    it.knownDevices.clear()
+                    it.messageCallback = null
+                    it.deviceChangeCallback = null
+                    it.isReinitializing = false
+                    it.appContext = null
+                }
                 instance = null
             }
         }
     }
 
     private var connectIQ: ConnectIQ? = null
-    private var isInitialized = false
     private val knownDevices = mutableSetOf<IQDevice>()
-    private val handler = Handler(Looper.getMainLooper())
+    private val appListeners = mutableMapOf<String, IQApplicationEventListener>()
     private var messageCallback: ((String, String, Long) -> Unit)? = null
     private var deviceChangeCallback: (() -> Unit)? = null
+    private var appContext: Context? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
-    private val connectIQListener = object : ConnectIQListener {
-        override fun onSdkReady() {
-            log("SDK ready")
-        }
+    @Volatile
+    private var sdkReady = false
 
-        override fun onInitializeError(status: IQSdkErrorStatus) {
-            logError("SDK initialization error: $status")
-        }
+    @Volatile
+    private var isReinitializing = false
 
-        override fun onSdkShutDown() {
-            log("SDK shut down")
-            isInitialized = false
-        }
-    }
-
-    private val deviceEventListener = object : ConnectIQ.IQDeviceEventListener {
-        override fun onDeviceStatusChanged(device: IQDevice, status: IQDevice.IQDeviceStatus) {
-            log("Device status changed: ${device.friendlyName} -> $status")
-            refreshAndRegisterDevices()
+    private fun log(msg: String) = Log.i(TAG, msg)
+    private fun logError(msg: String, throwable: Throwable? = null) {
+        if (throwable != null) {
+            Log.e(TAG, msg, throwable)
+        } else {
+            Log.e(TAG, msg)
         }
     }
 
-    fun initializeSdkIfNeeded(context: Context, onComplete: () -> Unit) {
-        if (isInitialized) {
-            log("SDK already initialized")
-            onComplete()
+    fun initializeSdkIfNeeded(context: Context, onReady: (() -> Unit)? = null) {
+        appContext = context.applicationContext
+        if (sdkReady) {
+            log("SDK already initialized and ready")
+            onReady?.invoke()
             return
         }
 
-        try {
-            if (connectIQ == null) {
-                connectIQ = ConnectIQ.getInstance(context.applicationContext, ConnectIQ.IQConnectType.WIRELESS)
+        log("Initializing SDK")
+        connectIQ = ConnectIQ.getInstance(appContext, ConnectIQ.IQConnectType.WIRELESS)
+        connectIQ?.initialize(appContext, false, object : ConnectIQListener {
+            override fun onSdkReady() {
+                log("SDK initialized successfully")
+                sdkReady = true
+                mainHandler.postDelayed({
+                    refreshAndRegisterDevices()
+                    onReady?.invoke()
+                }, DISCOVERY_DELAY_MS)
             }
 
-            connectIQ?.initialize(context.applicationContext, false, connectIQListener)
-            isInitialized = true
-            log("SDK initialization started")
-            onComplete()
+            override fun onInitializeError(status: IQSdkErrorStatus?) {
+                logError("SDK initialization failed: $status")
+                sdkReady = false
+            }
+
+            override fun onSdkShutDown() {
+                log("SDK shutdown")
+                sdkReady = false
+            }
+        })
+    }
+
+    private fun testAndRecoverSdk(context: Context): Boolean {
+        if (isReinitializing) return false
+        val sdk = connectIQ ?: return false
+        try {
+            val test = sdk.connectedDevices
+            return true
         } catch (e: Exception) {
-            logError("Failed to initialize SDK", e)
-            isInitialized = false
+            if (e.message?.contains("SDK not initialized") == true) {
+                synchronized(this) {
+                    if (isReinitializing) return false
+                    isReinitializing = true
+                }
+                log("SDK service binding lost, starting SdkInitActivity for recovery")
+                connectIQ = null
+                sdkReady = false
+                try {
+                    val intent = Intent(context, SdkInitActivity::class.java).apply {
+                        action = SdkInitActivity.ACTION_INIT_SDK
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
+                    mainHandler.postDelayed({
+                        synchronized(this) {
+                            isReinitializing = false
+                        }
+                    }, 5000)
+                } catch (e: Exception) {
+                    logError("Failed to start SdkInitActivity", e)
+                    synchronized(this) {
+                        isReinitializing = false
+                    }
+                }
+                return false
+            }
+            return false
         }
     }
 
-    fun isInitialized(): Boolean = isInitialized
-
-    fun setMessageCallback(callback: ((String, String, Long) -> Unit)?) {
-        this.messageCallback = callback
+    fun hasRequiredPermissions(context: Context): Boolean {
+        val needs = mutableListOf(android.Manifest.permission.ACCESS_FINE_LOCATION)
+        if (Build.VERSION.SDK_INT >= 31) {
+            needs.add(android.Manifest.permission.BLUETOOTH_SCAN)
+            needs.add(android.Manifest.permission.BLUETOOTH_CONNECT)
+        }
+        return needs.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
     }
 
-    fun setDeviceChangeCallback(callback: (() -> Unit)?) {
-        this.deviceChangeCallback = callback
+    fun isInitialized(): Boolean = sdkReady
+
+    private fun isRealDevice(device: IQDevice): Boolean {
+        return device.deviceIdentifier != KNOWN_SIMULATOR_ID &&
+               !device.friendlyName.orEmpty().contains("simulator", ignoreCase = true)
     }
 
-    fun getConnectedRealDevices(context: Context): List<IQDevice> {
+    fun getConnectedRealDevices(context: Context? = null): List<IQDevice> {
+        val sdk = connectIQ ?: return emptyList()
         return try {
-            connectIQ?.connectedDevices?.filter { device ->
-                device.status == IQDevice.IQDeviceStatus.CONNECTED &&
-                device.deviceIdentifier != 0L
-            } ?: emptyList()
+            val connected = sdk.connectedDevices ?: emptyList()
+            connected.filter { isRealDevice(it) }
         } catch (e: Exception) {
-            logError("Failed to get connected devices", e)
+            logError("Error getting devices", e)
+            if (context != null && e.message?.contains("SDK not initialized") == true) {
+                testAndRecoverSdk(context)
+            }
             emptyList()
         }
     }
 
-    fun registerListenersForAllDevices() {
-        knownDevices.clear()
+    fun refreshAndRegisterDevices() {
+        val sdk = connectIQ ?: return
+        val ctx = appContext
+        val all = try {
+            sdk.knownDevices
+        } catch (e: Exception) {
+            emptyList()
+        }
 
-        connectIQ?.let { sdk ->
+        val candidates = all?.filter { it.deviceIdentifier != KNOWN_SIMULATOR_ID } ?: emptyList()
+        candidates.forEach { device ->
             try {
-                sdk.connectedDevices.forEach { device ->
-                    if (device.status == IQDevice.IQDeviceStatus.CONNECTED) {
-                        registerAppListenerForDevice(sdk, device)
-                        knownDevices.add(device)
-                        
-                        // Register device event listener for each device
-                        try {
-                            sdk.registerForDeviceEvents(device, deviceEventListener)
-                        } catch (e: Exception) {
-                            logError("Failed to register device event listener for ${device.friendlyName}", e)
+                sdk.registerForDeviceEvents(device) { dev, status ->
+                    log("Device ${dev.friendlyName} status changed: $status")
+                    when (status) {
+                        IQDevice.IQDeviceStatus.CONNECTED -> {
+                            if (ctx != null && !testAndRecoverSdk(ctx)) {
+                                log("SDK recovery initiated after CONNECTED event")
+                            } else {
+                                deviceChangeCallback?.invoke()
+                            }
                         }
+                        IQDevice.IQDeviceStatus.NOT_CONNECTED,
+                        IQDevice.IQDeviceStatus.NOT_PAIRED -> {
+                            deviceChangeCallback?.invoke()
+                        }
+                        else -> {}
                     }
                 }
             } catch (e: Exception) {
-                logError("Failed to register device listeners", e)
+                logError("Failed to register device events", e)
             }
         }
     }
 
-    private fun refreshAndRegisterDevices() {
-        try {
-            handler.postDelayed({
-                connectIQ?.let { sdk ->
-                    sdk.connectedDevices.forEach { device ->
-                        when (device.status) {
-                            IQDevice.IQDeviceStatus.CONNECTED -> {
-                                if (device !in knownDevices) {
-                                    registerAppListenerForDevice(sdk, device)
-                                    knownDevices.add(device)
-                                }
-                                // Notify callback that device list changed
-                                deviceChangeCallback?.invoke()
-                            }
-                            IQDevice.IQDeviceStatus.NOT_CONNECTED -> {
-                                if (device in knownDevices) {
-                                    knownDevices.remove(device)
-                                    deviceChangeCallback?.invoke()
-                                }
-                            }
-                            else -> {}
-                        }
-                    }
-                }
-            }, DEVICE_STATUS_CHECK_DELAY_MS)
-        } catch (e: Exception) {
-            logError("Failed to refresh device registrations", e)
+    fun registerListenersForAllDevices() {
+        val devices = getConnectedRealDevices()
+        log("Registering ${devices.size} device(s)")
+        knownDevices.clear()
+        knownDevices.addAll(devices)
+        devices.forEach { device ->
+            registerListenerForDevice(device)
         }
     }
 
-    private fun registerAppListenerForDevice(sdk: ConnectIQ, device: IQDevice) {
-        try {
-            val app = IQApp(MY_APP_ID)
-            sdk.registerForAppEvents(device, app, object : IQApplicationEventListener {
-                override fun onMessageReceived(
-                    dev: IQDevice,
-                    app: IQApp,
-                    messages: MutableList<Any>,
-                    status: ConnectIQ.IQMessageStatus
-                ) {
-                    if (status == ConnectIQ.IQMessageStatus.SUCCESS && messages.isNotEmpty()) {
-                        val payload = messages[0].toString()
-                        val receiveTime = System.currentTimeMillis()
-                        log("Message from ${dev.friendlyName}: $payload")
-                        messageCallback?.invoke(payload, dev.friendlyName, receiveTime)
-                    }
-                }
-            })
-            log("App listener registered for ${device.friendlyName}")
-        } catch (e: Exception) {
-            logError("Failed to register app listener for ${device.friendlyName}", e)
-        }
-    }
+    private fun registerListenerForDevice(device: IQDevice) {
+        val sdk = connectIQ ?: return
+        val app = IQApp(APP_UUID)
+        val appKey = "${device.deviceIdentifier}:$APP_UUID"
 
-    private fun testAndRecoverSdk(ctx: Context): Boolean {
-        return try {
-            val devices = connectIQ?.connectedDevices
-            if (devices == null) {
-                log("SDK health check failed: null devices, reinitializing...")
-                reinitializeSdk(ctx)
-                false
-            } else {
-                log("SDK health check passed")
-                true
+        if (appListeners.containsKey(appKey)) {
+            return
+        }
+
+        val knownDeviceName = device.friendlyName?.takeIf { it.isNotEmpty() } ?: "Unknown Device"
+        val appListener = IQApplicationEventListener { dev, _, messages, _ ->
+            if (dev == null || messages.isNullOrEmpty()) return@IQApplicationEventListener
+            messages.forEach { msg ->
+                val payload = msg.toString()
+                val deviceName = knownDeviceName
+                val timestamp = System.currentTimeMillis()
+                log("Message from $deviceName: $payload")
+                messageCallback?.invoke(payload, deviceName, timestamp)
+                sendMessageBroadcast(payload, deviceName)
             }
-        } catch (e: Exception) {
-            logError("SDK health check failed, reinitializing", e)
-            reinitializeSdk(ctx)
-            false
         }
-    }
 
-    private fun reinitializeSdk(context: Context) {
         try {
-            connectIQ?.shutdown(context.applicationContext)
-            connectIQ = null
-            isInitialized = false
-            handler.postDelayed({
-                initializeSdkIfNeeded(context) {
-                    registerListenersForAllDevices()
-                }
-            }, SDK_REINIT_DELAY_MS)
+            sdk.registerForAppEvents(device, app, appListener)
+            appListeners[appKey] = appListener
+            log("Registered listener for $knownDeviceName")
         } catch (e: Exception) {
-            logError("Failed to reinitialize SDK", e)
+            logError("Failed to register app listener", e)
         }
     }
 
-    fun shutdown() {
+    private fun sendMessageBroadcast(payload: String, deviceName: String) {
+        val context = appContext ?: return
+        val parts = payload.split("|")
+        if (parts.size < 4) {
+            logError("Invalid payload format: $payload")
+            return
+        }
+
+        val eventType = when (parts[0]) {
+            "STARTED", "ACTIVITY_STARTED" -> "Started"
+            "STOPPED", "ACTIVITY_STOPPED" -> "Stopped"
+            else -> {
+                logError("Unknown event type: ${parts[0]}")
+                return
+            }
+        }
+
         try {
-            knownDevices.clear()
-            messageCallback = null
-            deviceChangeCallback = null
-            handler.removeCallbacksAndMessages(null)
-            connectIQ = null
-            isInitialized = false
-            log("Service shutdown complete")
+            val time = parts[1].toLong()
+            val activity = parts[2]
+            val duration = parts[3].toInt()
+            val intent = Intent("net.xrxss15.GARMIN_ACTIVITY_LISTENER_EVENT").apply {
+                putExtra("type", eventType)
+                putExtra("device", deviceName)
+                putExtra("time", time)
+                putExtra("activity", activity)
+                putExtra("duration", duration)
+            }
+            context.sendBroadcast(intent)
+            log("Broadcast sent: $eventType from $deviceName")
         } catch (e: Exception) {
-            logError("Error during shutdown", e)
+            logError("Failed to parse message", e)
         }
     }
 
-    private fun log(message: String) {
-        Log.i(TAG, message)
+    fun setMessageCallback(callback: ((String, String, Long) -> Unit)?) {
+        messageCallback = callback
     }
 
-    private fun logError(message: String, throwable: Throwable? = null) {
-        if (throwable != null) {
-            Log.e(TAG, message, throwable)
-        } else {
-            Log.e(TAG, message)
-        }
+    fun setDeviceChangeCallback(callback: (() -> Unit)?) {
+        deviceChangeCallback = callback
     }
 }

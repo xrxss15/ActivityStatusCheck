@@ -141,22 +141,22 @@ class ConnectIQQueryWorker(
                 }
             }
 
-            connectIQService.registerListenersForAllDevices()
+            // Send Created broadcast BEFORE registering devices
+            sendCreatedBroadcast()
+
+            // Get initial device list and set previousDeviceList to prevent duplicates
             val initialDevices = connectIQService.getConnectedRealDevices(applicationContext)
                 .map { it.friendlyName ?: "Unknown" }
             
-            val startTime = System.currentTimeMillis()
             stateMutex.withLock {
                 connectedDeviceNames = initialDevices
                 previousDeviceList = initialDevices
-                
-                initialDevices.forEach { device ->
-                    storeConnectionEvent(device, true, startTime)
-                }
             }
 
             updateNotification()
-            sendCreatedBroadcast(initialDevices, startTime)
+            
+            // Now register listeners - device callback will only fire for REAL changes
+            connectIQService.registerListenersForAllDevices()
 
             Log.i(TAG, "Listening for events (${initialDevices.size} device(s))")
 
@@ -508,18 +508,16 @@ class ConnectIQQueryWorker(
         }
     }
 
-    private fun sendCreatedBroadcast(deviceNames: List<String>, receiveTime: Long) {
+    private fun sendCreatedBroadcast() {
         try {
             val intent = Intent(ACTION_EVENT).apply {
                 addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
                 putExtra("type", "Created")
-                putExtra("timestamp", System.currentTimeMillis())
-                putExtra("device_count", deviceNames.size)
                 putExtra("worker_start_time", workerStartTime)
-                putExtra("receive_time", receiveTime)
+                putExtra("receive_time", System.currentTimeMillis())
             }
             applicationContext.sendBroadcast(intent)
-            Log.i(TAG, "Created broadcast sent with ${deviceNames.size} device(s)")
+            Log.i(TAG, "Created broadcast sent")
         } catch (e: Exception) {
             Log.e(TAG, "Created broadcast failed", e)
         }
